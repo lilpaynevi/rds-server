@@ -1,0 +1,437 @@
+{
+  "title": "Passation",
+  "restaurantId": "7c074678-76ba-4281-8185-b09ce57cf95e",
+  "parts": [
+    {
+      "name": "Partie 1",
+      "order": 1,
+      "questions": [
+        {
+          "text": "Effectuer un tour du restauranten salle, exterieur, local à poubelle, plonge, zone de production, évaluer la satisfaction client",
+          "order": 1
+        },
+        {
+          "text": "verifier la disponibilité des produits de plonge",
+          "order": 2
+        },
+        {
+          "text": "verifier la disponibilité des produits bobine et distribution à gel/savon",
+          "order": 3
+        },
+        {
+          "text": "Verification DLC Poulet rotation et inventaire",
+          "order": 4
+        },
+        { "text": "Vérification DLC pain et inventaire", "order": 5 },
+        { "text": "Vérification DLC salade et inventaire", "order": 6 },
+        {
+          "text": "Vérification chambre salade et remplissage frigo pack",
+          "order": 7
+        },
+        {
+          "text": "Vérification chambre négative ( frite, poulet carton cobette ) et inventaire poulet frite",
+          "order": 8
+        },
+        { "text": "Vérification chambre sèche", "order": 9 },
+        { "text": "Vérification local bib et arrière", "order": 10 },
+        { "text": "Vérification DLC farine", "order": 11 },
+        { "text": "Charte de décongélation", "order": 12 },
+        { "text": "Vérification DLC comptoir, remplissage", "order": 13 },
+        { "text": "vérification rouleaux borne", "order": 14 },
+        { "text": "Comptage caisse", "order": 15 },
+        {
+          "text": "Feuille de cash/ suivi TR/Pertes/suivi coupon",
+          "order": 16
+        },
+        { "text": "Mettre les relevés sur le Job et tablette", "order": 17 }
+      ]
+    }
+  ],
+  "frequencies": [
+    { "day": "MONDAY", "startTime": "15:00", "endTime": "18:00" },
+    { "day": "TUESDAY", "startTime": "15:00", "endTime": "18:00" },
+    { "day": "WEDNESDAY", "startTime": "15:00", "endTime": "18:00" },
+    { "day": "THURSDAY", "startTime": "15:00", "endTime": "18:00" },
+    { "day": "FRIDAY", "startTime": "15:00", "endTime": "18:00" },
+    { "day": "SATURDAY", "startTime": "15:00", "endTime": "18:00" },
+    { "day": "SUNDAY", "startTime": "15:00", "endTime": "18:00" }
+  ]
+},
+{
+    "title": "Open",
+    "restaurantId": "7c074678-76ba-4281-8185-b09ce57cf95e",
+    "parts": [
+        {
+            "name": "Partie 1 ",
+            "order": 1,
+            "questions": [
+                {
+                    "text": "Effectuer un tour du restaurant en salle, extérieur, local à poubelle, plonge, zone de production, évaluer la satisfaction client",
+                    "order": 1
+                },
+                {
+                    "text": "Vérification des bobines et des distribution savon et gel",
+                    "order": 2
+                },
+                {
+                    "text": "Faire tremper les buses et la pelle à glacon dans le prodcuit désinnfectant ( 5 min ) et le brosser correctement",
+                    "order": 3
+                },
+                {
+                    "text": "Laver joint machine à laver",
+                    "order": 4
+                },
+                {
+                    "text": "lancer les lavettes dans la machine à 95 degrés",
+                    "order": 5
+                },
+                {
+                    "text": "Vérifier allumage du lave-batterie",
+                    "order": 6
+                },
+                {
+                    "text": "lancer les bacs à lavettes propre dans le lave batterie",
+                    "order": 7
+                },
+                {
+                    "text": "Monter la machine à café",
+                    "order": 8
+                },
+                {
+                    "text": "Vérifier la disponibilité des tabliers et charlottes",
+                    "order": 9
+                },
+                {
+                    "text": "Changer les vaporisateurs de produit désinfectant",
+                    "order": 10
+                },
+                {
+                    "text": "Vérifier la disponibilité des produits de plonge",
+                    "order": 11
+                },
+                {
+                    "text": "Allumer le frigo et le congélateur à frite",
+                    "order": 12
+                }
+            ]
+        },
+        {
+            "name": "Partie 2",
+            "order": 2,
+            "questions": [
+                {
+                    "text": "Vérification DLC farine",
+                    "order": 1
+                },
+                {
+                    "text": "Vérification DLC poulet/rotation et inventaire",
+                    "order": 2
+                },
+                {
+                    "text": "Vérification DLC salade et Eisenhowtair",
+                    "order": 3
+                },
+                {
+                    "text": "Verification chambre salade et préparation d'un ba pour remplissage frigo pack",
+                    "order": 4
+                },
+                {
+                    "text": "Salade à préparer",
+                    "order": 5
+                },
+                {
+                    "text": "Corbette à lancer",
+                    "order": 6
+                },
+                {
+                    "text": "Lavette propre à remettre en place",
+                    "order": 7
+                },
+                {
+                    "text": "Remplissage et mise en oplace du comptoir",
+                    "order": 8
+                },
+                {
+                    "text": "Vérification chambre sèche et préparation du bac pour le remplissage du pack",
+                    "order": 9
+                },
+                {
+                    "text": "Vérification local farine",
+                    "order": 10
+                },
+                {
+                    "text": "Remplissage pack",
+                    "order": 11
+                },
+                {
+                    "text": "Vérification bib",
+                    "order": 12
+                },
+                {
+                    "text": "Inventaire pain , DLC",
+                    "order": 13
+                },
+                {
+                    "text": "Charte de décongélation pain et poulet",
+                    "order": 14
+                },
+                {
+                    "text": "Vérification DLC, comptoir, remplissage",
+                    "order": 15
+                },
+                {
+                    "text": "Vérification rouleaux bornes",
+                    "order": 16
+                },
+                {
+                    "text": "Comptage caisee",
+                    "order": 17
+                },
+                {
+                    "text": "Afficher la charte de production, la feuille de perte, préparer le football et dlc du jour à noter",
+                    "order": 18
+                },
+                {
+                    "text": "Vérification chambre négative (frite, poulet, carto cobette) et inventaire poulet frite",
+                    "order": 19
+                },
+                {
+                    "text": "Vérification de présence de 5 gastro guacamole",
+                    "order": 20
+                }
+            ]
+        }
+    ],
+    "frequencies": [
+        {
+            "day": "MONDAY",
+            "startTime": "06:00",
+            "endTime": "11:00"
+        },
+        {
+            "day": "TUESDAY",
+            "startTime": "06:00",
+            "endTime": "11:00"
+        },
+        {
+            "day": "WEDNESDAY",
+            "startTime": "06:00",
+            "endTime": "11:00"
+        },
+        {
+            "day": "THURSDAY",
+            "startTime": "06:00",
+            "endTime": "11:00"
+        },
+        {
+            "day": "FRIDAY",
+            "startTime": "06:00",
+            "endTime": "11:00"
+        },
+        {
+            "day": "SATURDAY",
+            "startTime": "06:00",
+            "endTime": "11:00"
+        },
+        {
+            "day": "SUNDAY",
+            "startTime": "06:00",
+            "endTime": "11:00"
+        }
+    ]
+},
+{
+    "title": "Close",
+    "restaurantId": "7c074678-76ba-4281-8185-b09ce57cf95e",
+    "parts": [
+        {
+            "name": "Après rush",
+            "order": 1,
+            "questions": [
+                {
+                    "text": "Sommaire dépôts, caisses à 100, pochette TR, ANCV date et nom, nombre de coupons",
+                    "order": 1
+                },
+                {
+                    "text": "Fermer le parking (mettre les chaînes, barreaux fenêtres drive )",
+                    "order": 2
+                },
+                {
+                    "text": "Vérifier pointage, anomalie",
+                    "order": 3
+                },
+                {
+                    "text": "Perte poulet, tag, kfries",
+                    "order": 4
+                },
+                {
+                    "text": "Ranger le bureau manager",
+                    "order": 5
+                },
+                {
+                    "text": "Effectuer un tour du restaurant en salle, extérieur, local à poubelle, plonge, zone de production, évaluer la satisfaction client",
+                    "order": 6
+                },
+                {
+                    "text": "Verifier la disponibilité des produits de plonge ",
+                    "order": 7
+                },
+                {
+                    "text": "Vérifier la disponibilité bobine et distribution à gel/savon",
+                    "order": 8
+                },
+                {
+                    "text": "Rangement clé et extinction des lumières ",
+                    "order": 9
+                },
+                {
+                    "text": "Vérification DLC poulet rotation et inventaire",
+                    "order": 10
+                },
+                {
+                    "text": "Vérification DLC pain et inventaire",
+                    "order": 11
+                },
+                {
+                    "text": "Vérification DLC salade et inventaire",
+                    "order": 12
+                },
+                {
+                    "text": "Vérification chambre salade et remplissage frigo pack",
+                    "order": 13
+                },
+                {
+                    "text": "Vérification chambre négative (frite poulet carton corbette) et inventaire poulet frit ",
+                    "order": 14
+                },
+                {
+                    "text": "Vérification chambre sèche ",
+                    "order": 15
+                },
+                {
+                    "text": "Verification local bib arrière",
+                    "order": 16
+                },
+                {
+                    "text": "Verification DLC farine",
+                    "order": 17
+                },
+                {
+                    "text": "Charte de décongélation ",
+                    "order": 18
+                },
+                {
+                    "text": "Vérification DLC comptoir , remplissage",
+                    "order": 19
+                },
+                {
+                    "text": "Vérification  rouleaux borne",
+                    "order": 20
+                },
+                {
+                    "text": "Comptage caisse",
+                    "order": 21
+                },
+                {
+                    "text": "Feuille de cash/suivi TR/Pertes/suivi coupon",
+                    "order": 22
+                },
+                {
+                    "text": "Mettre les relevés sur le job et tablette ",
+                    "order": 23
+                },
+                {
+                    "text": "Fermer le pack au fur et à mesure",
+                    "order": 24
+                },
+                {
+                    "text": "Verifier le comptoir (dessert, frigo, dic machine à glace, (lire le message), buses et pelle dans un gastro rempli d'eau chaude)",
+                    "order": 25
+                },
+                {
+                    "text": "Nettoyage distributeur frite",
+                    "order": 26
+                },
+                {
+                    "text": "Eteindre les équipements au fur et à mesure",
+                    "order": 27
+                },
+                {
+                    "text": "Vérifier le filtrage des friteuses et polarité des huiles et les noter dans le job, vérifier la propriété des tables ",
+                    "order": 28
+                }
+            ]
+        },
+        {
+            "name": "Avant le rush",
+            "order": 2,
+            "questions": [
+                {
+                    "text": "Controle de la préparation de terrain",
+                    "order": 1
+                },
+                {
+                    "text": "Controle des rotations dans les chambres",
+                    "order": 2
+                },
+                {
+                    "text": "Controle rotation des pains et inventaire",
+                    "order": 3
+                },
+                {
+                    "text": "Vérifier les cartons ouverts et les emballages",
+                    "order": 4
+                },
+                {
+                    "text": "Prépartion de terrain pour le rush ",
+                    "order": 5
+                },
+                {
+                    "text": "Charte de décongélation ",
+                    "order": 6
+                },
+                {
+                    "text": "Vérification du job et de la tablette",
+                    "order": 7
+                }
+            ]
+        }
+    ],
+    "frequencies": [
+        {
+            "day": "MONDAY",
+            "startTime": "18:00",
+            "endTime": "23:59"
+        },
+        {
+            "day": "TUESDAY",
+            "startTime": "18:00",
+            "endTime": "23:59"
+        },
+        {
+            "day": "WEDNESDAY",
+            "startTime": "18:00",
+            "endTime": "23:59"
+        },
+        {
+            "day": "THURSDAY",
+            "startTime": "18:00",
+            "endTime": "23:59"
+        },
+        {
+            "day": "FRIDAY",
+            "startTime": "18:00",
+            "endTime": "23:59"
+        },
+        {
+            "day": "SATURDAY",
+            "startTime": "18:00",
+            "endTime": "23:59"
+        },
+        {
+            "day": "SUNDAY",
+            "startTime": "18:00",
+            "endTime": "23:59"
+        }
+    ]
+}

@@ -1,0 +1,54 @@
+version: '3'
+services:
+  rds_postgres:
+    image: postgres:14-alpine
+    container_name: rds_postgres
+    ports:
+      - 5432:5432
+    volumes:
+      - ./pgdata:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_PASSWORD=${DB_PASSWORD}
+      - POSTGRES_USER=${DB_HOST}
+      - POSTGRES_DB=${DB_NAME}
+  
+  rds_database:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: ${NODE_ENV}
+    container_name: rds_database
+    restart: always
+    # environment:
+    #   - PORT=${PORT}
+    ports:
+      - '8083:8083'
+    depends_on:
+      - rds_postgres
+    volumes:
+      - ./:/server/
+      # - /server/node_modules
+  
+  rds_adminer:
+    image: adminer
+    restart: always
+    container_name: rds_adminer
+    ports:
+      - '8084:8080'
+  
+  rds_ngrok:
+    image: ngrok/ngrok:latest
+    container_name: rds_ngrok
+    volumes:
+      - ./ngrok.yml:/etc/ngrok.yml # Mount the config file
+    ports:
+      - '4042:4042'
+    depends_on:
+      - rds_database
+    environment:
+      - NGROK_AUTHTOKEN=${NGROK_KEY} # Use environment variable for security
+    command: start --config=/etc/ngrok.yml rds_database
+
+volumes:
+  pgdata:
+  server:

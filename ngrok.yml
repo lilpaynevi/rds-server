@@ -1,0 +1,11 @@
+version: "2"
+# authtoken: 2Vd6uDSM2zbGKCXrlWteyjMQIUr_7dfGowMQzETwSQRwGYWgX
+authtoken: 32xk3G3UKsesrSF50zk6zVMSQmn_5fSGHMf1jd5reCFNbFca5
+web_addr: 0.0.0.0:4042
+update: false
+log: stdout
+
+tunnels:
+  rds_database:
+    addr: rds_database:8083
+    proto: http

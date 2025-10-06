@@ -1,0 +1,369 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id         String    @id @default(uuid())
+  firstName  String
+  lastName   String
+  company    String?
+  department String?
+  city       String?
+  email      String    @unique
+  password   String
+  role       UserRole  @default(USER)
+  avatar     String?
+  phone      String?
+  roles      UserRole  @default(USER)
+  isActive   Boolean   @default(true)
+  lastLogin  DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  isVerify   Boolean   @default(false)
+
+  // Relations
+  televisions  Television[]
+  medias       Media[]
+  playlists    Playlist[]
+  schedules    Schedule[]
+  Subscription Subscription[]
+  Invoice      Invoice[]
+
+  @@map("users")
+}
+
+model SubscriptionPlan {
+  id              String  @id @default(uuid())
+  name            String
+  description     String?
+  stripePriceId   String  @unique
+  stripeProductId String  @unique
+
+  planType      PlanType           @default(MAIN) // MAIN ou OPTION
+  parentPlanId  String? // Pour les options, référence vers le plan principal
+  parentPlan    SubscriptionPlan?  @relation("PlanOptions", fields: [parentPlanId], references: [id])
+  options       SubscriptionPlan[] @relation("PlanOptions")
+  // Limites du plan
+  maxScreens    Int                @default(5)
+  maxStorage    Int? // en GB
+  maxMediaFiles Int?
+
+  // Prix
+  price    Decimal
+  currency String  @default("eur")
+  interval String // "month" ou "year"
+
+  // Configuration
+  isActive  Boolean @default(true)
+  isPopular Boolean @default(false)
+  trialDays Int     @default(14)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  subscriptions Subscription[]
+
+  @@map("subscription_plans")
+}
+
+enum PlanType {
+  MAIN // Plan principal (mensuel ou annuel)
+  OPTION // Option/Add-on (écrans supplémentaires, stockage, etc.)
+}
+
+model Subscription {
+  id                   String             @id @default(uuid())
+  stripeSubscriptionId String             @unique
+  status               SubscriptionStatus @default(ACTIVE)
+
+  currentPeriodStart DateTime
+  currentPeriodEnd   DateTime
+  cancelAtPeriodEnd  Boolean   @default(false)
+  canceledAt         DateTime?
+  endedAt            DateTime?
+
+  quantity          Int @default(1)
+  currentMaxScreens Int @default(5)
+  usedScreens       Int @default(0)
+
+  metadata Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  user    User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId  String
+  plan    SubscriptionPlan @relation(fields: [planId], references: [id])
+  planId  String
+  Invoice Invoice[]
+
+  @@unique([userId, planId])
+  @@map("subscriptions")
+}
+
+model Invoice {
+  id             String       @id @default(uuid())
+  userId         String
+  user           User         @relation(fields: [userId], references: [id])
+  subscriptionId String
+  subscription   Subscription @relation(fields: [subscriptionId], references: [id])
+  stripeUrl      String
+}
+
+model Television {
+  id          String           @id @default(uuid())
+  name        String
+  deviceId    String?
+  location    String?
+  description String?
+  resolution  Resolution       @default(HD_1080P)
+  orientation Orientation      @default(LANDSCAPE)
+  status      TelevisionStatus @default(ONLINE)
+
+  // Configuration
+  volume      Int              @default(80) // 0-100
+  autoPlay    Boolean          @default(true)
+  loop        Boolean          @default(true)
+  transition  TransitionEffect @default(FADE)
+  refreshRate Int              @default(30) // seconds
+
+  // Timestamps  
+  lastSeen       DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  codeConnection String
+
+  // Relations
+  user      User?                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String?
+  playlists PlaylistTelevision[]
+  schedules Schedule[]
+  logs      TelevisionLog[]
+
+  @@map("televisions")
+}
+
+model Media {
+  id           String  @id @default(uuid())
+  title        String
+  description  String?
+  filename     String
+  originalName String
+
+  // File info
+  s3Key    String  @unique
+  s3Url    String?
+  mimeType String
+  fileSize Int? // in bytes
+  duration Int? // in seconds (for videos and image display time)
+
+  // Media properties
+  type      MediaType
+  width     Int?
+  height    Int?
+  thumbnail String? // S3 key for thumbnail
+
+  // Status
+  status   MediaStatus @default(ACTIVE)
+  priority Int         @default(5) // 1-10
+
+  // Timestamps
+  uploadedAt DateTime @default(now())
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  // Relations
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId        String
+  playlistItems PlaylistItem[]
+  schedules     Schedule[]
+
+  @@map("medias")
+}
+
+model Playlist {
+  id          String  @id @default(uuid())
+  name        String
+  description String?
+  isDefault   Boolean @default(false)
+  isActive    Boolean @default(false)
+
+  // Playback settings
+  shuffleMode Boolean    @default(false)
+  repeatMode  RepeatMode @default(LOOP)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  user        User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId      String
+  items       PlaylistItem[]
+  televisions PlaylistTelevision[]
+  schedules   Schedule[]
+
+  @@map("playlists")
+}
+
+model PlaylistItem {
+  id       String @id @default(uuid())
+  order    Int // Position in playlist
+  duration Int? // Override media duration if needed
+
+  createdAt DateTime @default(now())
+
+  // Relations
+  playlist   Playlist @relation(fields: [playlistId], references: [id], onDelete: Cascade)
+  playlistId String
+  media      Media    @relation(fields: [mediaId], references: [id], onDelete: Cascade)
+  mediaId    String
+
+  // @@unique([playlistId, order])
+  @@map("playlist_items")
+}
+
+model PlaylistTelevision {
+  id       String  @id @default(uuid())
+  isActive Boolean @default(true)
+  priority Int     @default(5)
+
+  assignedAt DateTime @default(now())
+
+  // Relations
+  playlist     Playlist   @relation(fields: [playlistId], references: [id], onDelete: Cascade)
+  playlistId   String
+  television   Television @relation(fields: [televisionId], references: [id], onDelete: Cascade)
+  televisionId String
+
+  @@unique([playlistId, televisionId])
+  @@map("playlist_televisions")
+}
+
+model Schedule {
+  id          String  @id @default(uuid())
+  title       String
+  description String?
+
+  // Scheduling
+  startDate  DateTime?
+  endDate    DateTime?
+  startTime  String // Format: "HH:mm"
+  endTime    String // Format: "HH:mm"
+  daysOfWeek Int[] // [0,1,2,3,4,5,6] where 0=Sunday
+
+  // Configuration
+  isActive         Boolean @default(true)
+  priority         Int     @default(5)
+  overridePlaylist Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  user         User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId       String
+  television   Television? @relation(fields: [televisionId], references: [id], onDelete: Cascade)
+  televisionId String?
+  playlist     Playlist?   @relation(fields: [playlistId], references: [id], onDelete: SetNull)
+  playlistId   String?
+  media        Media?      @relation(fields: [mediaId], references: [id], onDelete: SetNull)
+  mediaId      String?
+
+  @@map("schedules")
+}
+
+model TelevisionLog {
+  id        String  @id @default(uuid())
+  action    String // "CONNECTED", "DISCONNECTED", "PLAYED_MEDIA", "ERROR", etc.
+  details   Json? // Additional data
+  ipAddress String?
+  userAgent String?
+
+  createdAt DateTime @default(now())
+
+  // Relations
+  television   Television @relation(fields: [televisionId], references: [id], onDelete: Cascade)
+  televisionId String
+
+  @@map("television_logs")
+}
+
+// Enums
+
+enum SubscriptionStatus {
+  ACTIVE
+  CANCELED
+  INCOMPLETE
+  INCOMPLETE_EXPIRED
+  PAST_DUE
+  PAUSED
+  TRIALING
+  UNPAID
+}
+
+enum UserRole {
+  ADMIN
+  USER
+  VIEWER
+}
+
+enum MediaType {
+  IMAGE
+  VIDEO
+  AUDIO
+  DOCUMENT
+}
+
+enum MediaStatus {
+  ACTIVE
+  INACTIVE
+  PROCESSING
+  ERROR
+  DELETED
+}
+
+enum Resolution {
+  HD_720P
+  HD_1080P
+  UHD_4K
+}
+
+enum Orientation {
+  LANDSCAPE
+  PORTRAIT
+}
+
+enum TelevisionStatus {
+  ONLINE
+  OFFLINE
+  PLAYING
+  PAUSED
+  ERROR
+}
+
+enum TransitionEffect {
+  NONE
+  FADE
+  SLIDE_LEFT
+  SLIDE_RIGHT
+  SLIDE_UP
+  SLIDE_DOWN
+  ZOOM_IN
+  ZOOM_OUT
+}
+
+enum RepeatMode {
+  NONE
+  LOOP
+  REPEAT_ONE
+}
