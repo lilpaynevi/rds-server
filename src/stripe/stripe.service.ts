@@ -208,10 +208,10 @@ export class StripeService {
     );
 
     // ✅ CORRECTION : Calculer correctement les écrans de base
-    const baseMaxScreens = subscriptionPlan.maxScreens || 1;
+    const baseMaxScreens = subscriptionPlan.maxScreens;
     // ❌ const totalMaxScreens = baseMaxScreens + quantity;
     // ✅ Pour un plan principal, la quantité multiplie les écrans de base
-    const totalMaxScreens = baseMaxScreens * quantity;
+    const totalMaxScreens = baseMaxScreens + quantity;
 
     console.log('📊 Calcul plan principal:', {
       baseMaxScreens,
@@ -243,8 +243,8 @@ export class StripeService {
       await this.prisma.subscription.update({
         where: { id: existingMainSubscription.id },
         data: {
-          status: 'CANCELED',
           canceledAt: new Date(),
+          currentMaxScreens: totalMaxScreens,
           endedAt: new Date(),
           metadata: {
             cancelReason: 'PLAN_CHANGE',
@@ -475,8 +475,7 @@ export class StripeService {
     console.log('📋 Options actives trouvées:', activeOptions.length);
 
     // ✅ CORRECTION : Écrans de base du plan principal
-    const mainPlanBaseScreens =
-      (mainSubscription.plan.maxScreens || 1) * mainSubscription.quantity;
+    const mainPlanBaseScreens = mainSubscription.plan.maxScreens || 1;
 
     // ✅ CORRECTION : Écrans des options (quantity = écrans ajoutés directement)
     let totalAdditionalScreens = 0;

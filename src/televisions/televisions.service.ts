@@ -197,8 +197,8 @@ export class TelevisionsService {
               include: {
                 items: {
                   include: {
-                    media: true
-                  }
+                    media: true,
+                  },
                 },
               },
             },
@@ -216,9 +216,7 @@ export class TelevisionsService {
       },
     });
 
-    return { 
-      ...res
-    }
+    return res;
   }
 
   async checkCodeOrCreate(data: any) {
@@ -399,6 +397,40 @@ export class TelevisionsService {
     });
 
     return { message: 'Television deleted successfully' };
+  }
+
+  async deleteTelevisionWithCleanup(televisionId: string) {
+    try {
+      const existingTelevision = await this.prisma.television.findUnique({
+        where: { id: televisionId },
+      });
+
+      if (!existingTelevision) {
+        throw new NotFoundException('Television not found');
+      }
+
+      await this.prisma.$transaction(async (tx) => {
+        // 1. Supprimer les associations PlaylistTelevision
+        await tx.playlistTelevision.deleteMany({
+          where: { televisionId },
+        });
+
+        // 2. Déassigner les Schedules (mettre televisionId à null au lieu de supprimer)
+        await tx.schedule.deleteMany({
+          where: { televisionId },
+        });
+
+        // 3. Finalement, supprimer la télévision
+        await tx.television.delete({
+          where: { id: televisionId },
+        });
+      });
+
+      return { success: true, message: 'Télévision supprimée avec succès' };
+    } catch (error) {
+      console.error('Erreur lors de la suppression de la télévision:', error);
+      throw error;
+    }
   }
 
   async MyTVs(user: any) {

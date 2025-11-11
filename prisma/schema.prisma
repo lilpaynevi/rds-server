@@ -107,7 +107,7 @@ model Subscription {
   planId  String
   Invoice Invoice[]
 
-  @@unique([userId, planId])
+  // @@unique([userId, planId])
   @@map("subscriptions")
 }
 

@@ -84,7 +84,8 @@ export class WebsocketsGateway
           Subscription: {
             select: {
               currentMaxScreens: true,
-              id: true
+              usedScreens: true,
+              id: true,
             },
           },
           televisions: true,
@@ -92,24 +93,16 @@ export class WebsocketsGateway
       });
 
       const userMaxScreen =
-        existingUser && existingUser.Subscription[0].currentMaxScreens;
+        existingUser && existingUser.Subscription && existingUser.Subscription[0].currentMaxScreens;
 
       const userNumberTVAssocited =
-        existingUser && existingUser.televisions.length;
+        existingUser && existingUser.Subscription[0].usedScreens;
 
       const existingCode = await this.prisma.television.findFirst({
         where: {
           codeConnection: data.code,
         },
       });
-
-      if (!existingCode) {
-        client.emit('connect-tv-code-error', {
-          status: false,
-          error: 'Code de connexion invalide',
-        });
-        return 'pas de code existant';
-      }
 
       if (existingUser && !userMaxScreen) {
         client.emit('connect-tv-code-error', {
@@ -120,7 +113,15 @@ export class WebsocketsGateway
         return 'Vous devez avoir un abonnement pour ajouter une TV';
       }
 
-      if (existingUser && userNumberTVAssocited === userMaxScreen) {
+      if (!existingCode) {
+        client.emit('connect-tv-code-error', {
+          status: false,
+          error: 'Code de connexion invalide',
+        });
+        return 'pas de code existant';
+      }
+
+      if (existingUser && userNumberTVAssocited >= userMaxScreen) {
         client.emit('connect-tv-code-error', {
           status: false,
           error: `Vous avez déjà dépassé votre capacité d'écran pour votre abonnement ! Merci de souscrire à 'Option Ecran Supplémentaire'`,
@@ -150,9 +151,7 @@ export class WebsocketsGateway
 
         await this.prisma.subscription.updateMany({
           data: {
-            usedScreens: {
-              increment: 1
-            },
+            usedScreens: existingUser.Subscription[0].usedScreens + 1
           },
           where: {
             id: existingUser.Subscription[0].id,
@@ -610,7 +609,7 @@ export class WebsocketsGateway
       const playlistItems = tvWithPlaylists.playlists.flatMap((tvPlaylist) =>
         tvPlaylist.playlist.items.map((item) => ({
           uri: item.media.s3Url,
-          duration: item.duration,
+          duration: item.media.duration,
           id: item.id, // Optionnel: utile pour le frontend
         })),
       );
@@ -698,7 +697,7 @@ export class WebsocketsGateway
       // ✅ Préparer les items pour la réponse
       const playlistItems = activePlaylist.items.map((item) => ({
         uri: item.media.s3Url,
-        duration: item.duration || item.media.duration, // Utiliser la durée de l'item ou celle du média
+        duration: item.media.duration, // Utiliser la durée de l'item ou celle du média
         mediaId: item.mediaId,
         order: item.order,
       }));

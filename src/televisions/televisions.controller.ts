@@ -91,6 +91,6 @@ export class TelevisionsController {
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
   remove(@Param('id', ParseUUIDPipe) id: string) {
-    return this.televisionsService.remove(id);
+    return this.televisionsService.deleteTelevisionWithCleanup(id);
   }
 }

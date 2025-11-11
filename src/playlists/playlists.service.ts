@@ -1,5 +1,5 @@
 // playlist.service.ts
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { writeFile, mkdir, unlink } from 'fs/promises';
 import { join } from 'path';
 import { existsSync } from 'fs';
@@ -253,6 +253,290 @@ export class PlaylistsService {
           totalItems: createdItems.length,
           playlistId: playlist.id,
           televisionId: parsedData.television,
+        },
+      };
+    });
+  }
+
+  async createMultiple(createPlaylistDto: any, files?: Express.Multer.File[]) {
+    console.log('🚀 ~ PlaylistsService ~ create ~ files:', files);
+    console.log(
+      '🚀 ~ PlaylistsService ~ create ~ createPlaylistDto:',
+      createPlaylistDto,
+    );
+
+    var parsedData = JSON.parse(createPlaylistDto);
+
+    return await this.prisma.$transaction(async (tx) => {
+      // ✅ 1️⃣ VÉRIFIER que toutes les télévisions existent
+      const televisionIds = Array.isArray(parsedData.televisions)
+        ? parsedData.televisions
+        : [parsedData.television];
+
+      if (!televisionIds || televisionIds.length === 0) {
+        throw new Error('Aucune télévision sélectionnée');
+      }
+
+      const televisions = await tx.television.findMany({
+        where: {
+          id: { in: televisionIds },
+        },
+      });
+
+      if (televisions.length !== televisionIds.length) {
+        throw new Error(
+          "Certaines télévisions sont introuvables ou vous n'y avez pas accès",
+        );
+      }
+
+      console.log(`✅ ${televisions.length} télévision(s) trouvée(s)`);
+
+      // ✅ 2️⃣ CRÉER LES MÉDIAS (une seule fois pour toutes les playlists)
+      const createdMedias = [];
+
+      console.log(`✅ ${createdMedias.length} média(s) créé(s)`);
+
+      // ✅ 3️⃣ CRÉER UNE PLAYLIST POUR CHAQUE TÉLÉVISION
+      const results = [];
+
+      for (const television of televisions) {
+        console.log(`🔄 Création playlist pour TV: ${television.name}`);
+
+        const findTV = await this.prisma.television.findUnique({
+          where: {
+            id: television.id,
+          },
+        });
+
+        for (let i = 0; i < files.length; i++) {
+          const item = parsedData.items[i];
+          const file = files ? files[i] : null;
+
+          if (file) {
+            // Créer le dossier de base pour l'utilisateur
+            const uploadDir = join(
+              process.cwd(),
+              'uploads',
+              'media',
+              findTV.userId,
+            );
+            if (!existsSync(uploadDir)) {
+              await mkdir(uploadDir, { recursive: true });
+            }
+
+            // ✅ Fonction pour extraire l'extension
+            const getFileExtension = (filename, mimetype) => {
+              console.log(
+                '🔍 Debug extension - filename:',
+                filename,
+                'mimetype:',
+                mimetype,
+              );
+
+              if (filename && filename.includes('.')) {
+                const ext = filename.split('.').pop().toLowerCase();
+                console.log('📝 Extension extraite du nom:', ext);
+                return ext;
+              }
+
+              // Fallback basé sur le mimetype
+              switch (mimetype) {
+                case 'application/pdf':
+                  return 'pdf';
+                case 'image/jpeg':
+                  return 'jpg';
+                case 'image/png':
+                  return 'png';
+                case 'image/gif':
+                  return 'gif';
+                case 'image/webp':
+                  return 'webp';
+                case 'video/mp4':
+                  return 'mp4';
+                case 'video/quicktime':
+                  return 'mov';
+                case 'video/webm':
+                  return 'webm';
+                case 'video/avi':
+                  return 'avi';
+                default:
+                  return 'bin';
+              }
+            };
+
+            const timestamp = Date.now();
+            const randomId = Math.random().toString(36).substring(2);
+            const extension = getFileExtension(item.name, file.mimetype);
+            const uniqueFileName = `${timestamp}_${randomId}.${extension}`;
+            const filePath = join(uploadDir, uniqueFileName);
+
+            console.log('📁 Traitement fichier:', {
+              original: item.name,
+              mimetype: file.mimetype,
+              extension: extension,
+              unique: uniqueFileName,
+            });
+
+            await writeFile(filePath, file.buffer);
+
+            // Fonction pour déterminer le mimeType
+            const getMimeType = (type, extension) => {
+              switch (type.toLowerCase()) {
+                case 'video':
+                  return extension === 'mov' ? 'video/quicktime' : 'video/mp4';
+                case 'pdf':
+                  return 'application/pdf';
+                case 'image':
+                default:
+                  switch (extension) {
+                    case 'png':
+                      return 'image/png';
+                    case 'gif':
+                      return 'image/gif';
+                    case 'webp':
+                      return 'image/webp';
+                    case 'jpg':
+                    case 'jpeg':
+                    default:
+                      return 'image/jpeg';
+                  }
+              }
+            };
+
+            console.log("fefrfrfrfrfrfr: " , item)
+            const media = await tx.media.create({
+              data: {
+                title: item.name.split('.')[0],
+                filename: uniqueFileName,
+                originalName: item.name,
+                s3Key: uniqueFileName,
+                s3Url: `/uploads/media/${findTV.userId}/${uniqueFileName}`,
+                mimeType: getMimeType(item.type, extension),
+                fileSize: file.size,
+                type: item.type.toUpperCase(),
+                duration: item.duration
+                  ? Math.round(item.duration * 1000)
+                  : null,
+                userId: findTV.userId,
+                status: 'ACTIVE',
+              },
+            });
+
+            createdMedias.push({
+              media,
+              originalItem: item,
+              order: i + 1,
+            });
+          }
+        }
+
+        // Créer la playlist
+        const playlist = await tx.playlist.create({
+          data: {
+            name: `${parsedData.titre} - ${television.name}`,
+            description: `Playlist avec ${createdMedias.length} médias pour ${television.name}`,
+            isActive: parsedData.isActive,
+            shuffleMode: false,
+            repeatMode: 'LOOP',
+            userId: findTV.userId,
+          },
+        });
+
+        console.log(`✅ Playlist créée pour ${television.name}:`, playlist.id);
+
+        // Créer la relation playlist-television
+        await tx.playlistTelevision.create({
+          data: {
+            playlistId: playlist.id,
+            televisionId: television.id,
+            isActive: true,
+            priority: 5,
+          },
+        });
+
+        // Créer les items de playlist
+        const playlistItems = [];
+
+        const getDefaultDuration = (type) => {
+          switch (type.toLowerCase()) {
+            case 'pdf':
+              return 5000;
+            case 'image':
+              return 3000;
+            case 'video':
+            default:
+              return null;
+          }
+        };
+
+        for (const mediaData of createdMedias) {
+          const playlistItem = await tx.playlistItem.create({
+            data: {
+              playlistId: playlist.id,
+              mediaId: mediaData.media.id,
+              order: mediaData.order,
+              duration: mediaData.originalItem.duration
+                ? Math.round(mediaData.originalItem.duration * 1000)
+                : getDefaultDuration(mediaData.originalItem.type),
+            },
+          });
+
+          playlistItems.push(playlistItem);
+        }
+
+        // ✅ 4️⃣ CRÉER LE PLANNING si nécessaire (un par TV)
+        let schedule = null;
+        if (parsedData?.schedule?.daysOfWeek?.length > 0) {
+          schedule = await tx.schedule.create({
+            data: {
+              title: `Planning - ${parsedData.titre} - ${television.name}`,
+              description: `Programmation pour ${parsedData.titre} sur ${television.name}`,
+              startDate: parsedData.schedule.startDate,
+              endDate: parsedData.schedule.endDate,
+              startTime: parsedData.schedule.startTime,
+              endTime: parsedData.schedule.endTime,
+              daysOfWeek: parsedData.schedule.daysOfWeek,
+              isActive: true,
+              priority: 5,
+              userId: findTV.userId,
+              televisionId: television.id,
+              playlistId: playlist.id,
+            },
+          });
+        }
+
+        results.push({
+          television,
+          playlist,
+          items: playlistItems,
+          schedule,
+          mediaCount: createdMedias.length,
+        });
+
+        console.log(`✅ Playlist complète créée pour ${television.name}`);
+      }
+
+      // ✅ 5️⃣ RÉSUMÉ GLOBAL
+      const totalDuration = createdMedias.reduce((sum, mediaData) => {
+        return (
+          sum +
+          (mediaData.originalItem.duration
+            ? Math.round(mediaData.originalItem.duration * 1000)
+            : 3000)
+        );
+      }, 0);
+
+      return {
+        success: true,
+        message: `${results.length} playlist(s) créée(s) avec succès`,
+        results,
+        summary: {
+          playlistsCreated: results.length,
+          televisionsConfigured: televisions.length,
+          mediasCreated: createdMedias.length,
+          totalDuration: totalDuration,
+          televisionNames: televisions.map((tv) => tv.name),
+          hasSchedule: !!parsedData?.schedule?.daysOfWeek?.length,
         },
       };
     });
@@ -570,7 +854,7 @@ export class PlaylistsService {
             `✅ Nouveau média ${media.id} ajouté (Type: ${mediaType})`,
           );
         }
-      } 
+      }
 
       // ✅ 6️⃣ SUPPRIMER les items qui ne sont plus dans la nouvelle liste
       // const itemsToDelete = existingPlaylist.items.filter(
@@ -811,6 +1095,7 @@ export class PlaylistsService {
                 id: true,
                 filename: true,
                 s3Url: true,
+                duration: true
               },
             },
           },
@@ -919,6 +1204,69 @@ export class PlaylistsService {
       return updatedPlaylist;
     });
   }
+
+  // playlists.service.ts
+
+async changeDurationMedia(
+  playlistId: string,
+  mediaId: string,
+  data: { duration: number },
+) {
+  try {
+    // Validation de la durée
+    if (!data.duration || data.duration < 1000 || data.duration > 600000) {
+      throw new BadRequestException(
+        'La durée doit être entre 1 seconde (1000ms) et 10 minutes (600000ms)'
+      );
+    }
+
+    // Vérifier que la playlist existe
+    const playlist = await this.prisma.playlist.findUnique({
+      where: { id: playlistId },
+    });
+
+    if (!playlist) {
+      throw new NotFoundException('Playlist introuvable');
+    }
+
+    // Vérifier que le média existe dans la playlist
+    const playlistMedia = await this.prisma.playlistItem.findFirst({
+      where: {
+        playlistId: playlistId,
+        mediaId: mediaId,
+      },
+    });
+
+    if (!playlistMedia) {
+      throw new NotFoundException('Média introuvable dans cette playlist');
+    }
+
+    // Mettre à jour la durée
+    const updatedPlaylistMedia = await this.prisma.media.update({
+      where: {
+        id: mediaId,
+      },
+      data: {
+        duration: data.duration,
+      },
+    });
+
+    // Mettre à jour le timestamp de la playlist
+    await this.prisma.playlist.update({
+      where: { id: playlistId },
+      data: { updatedAt: new Date() },
+    });
+
+    return {
+      success: true,
+      message: 'Durée mise à jour avec succès',
+      data: updatedPlaylistMedia,
+    };
+  } catch (error) {
+    console.error('Erreur changeDurationMedia:', error);
+    throw error;
+  }
+}
 
   async assignPlaylistToTV(data: { televisionId: string; playlistId: string }) {
     try {

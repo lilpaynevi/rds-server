@@ -55,6 +55,37 @@ export class PlaylistsController {
   }
 
   @UseGuards(JwtAuthGuard)
+  @Post('/create/multiple')
+  @UseInterceptors(
+    FilesInterceptor('files', 20, {
+      limits: { fileSize: 100 * 1024 * 1024 }, // 100MB par fichier
+      // fileFilter: (req, file, cb) => {
+      //   // Accepter images et vidéos
+      //   if (file.mimetype.match(/\/(jpg|jpeg|png|gif|mp4|mov|avi)$/)) {
+      //     cb(null, true);
+      //   } else {
+      //     cb(new Error('Type de fichier non supporté'), false);
+      //   }
+      // },
+    }),
+  )
+  async createMultiple(
+    @Body() createPlaylistDto: any,
+    @UploadedFiles() files: Express.Multer.File[],
+  ) {
+    console.log('🚀 ~ PlaylistsController ~ create ~ files:', files);
+    // Parser les données si elles arrivent en string
+    if (typeof createPlaylistDto === 'string') {
+      createPlaylistDto = JSON.parse(createPlaylistDto);
+    }
+
+    return await this.playlistsService.createMultiple(
+      createPlaylistDto.playlistData,
+      files,
+    );
+  }
+
+  @UseGuards(JwtAuthGuard)
   @Get('/me')
   findAll(@GetUser() user: any) {
     return this.playlistsService.myPlaylists(user);
@@ -112,22 +143,29 @@ export class PlaylistsController {
     );
   }
 
-  @Patch('/:playlistId/assign-tv')
-  assignPlaylistToTV(
-    @Body() data: { televisionId: string , playlistId: string },
+  @Patch('/:playlistId/media/:mediaId/duration')
+  changeDurationMedia(
+    @Param('mediaId') mediaId: string,
+    @Param('playlistId') playlistId: string,
+    @Body() data,
   ) {
-    return this.playlistsService.assignPlaylistToTV(
-      data
+    return this.playlistsService.changeDurationMedia(
+      playlistId,
+      mediaId,
+      data,
     );
   }
 
-  @Patch('/:playlistId/reorder')
-  orderPlaylistToTV(
-    @Body() data: { mediaId: string , order: number }[],
+  @Patch('/:playlistId/assign-tv')
+  assignPlaylistToTV(
+    @Body() data: { televisionId: string; playlistId: string },
   ) {
-    return this.playlistsService.reorderPlaylistToTV(
-      data
-    );
+    return this.playlistsService.assignPlaylistToTV(data);
+  }
+
+  @Patch('/:playlistId/reorder')
+  orderPlaylistToTV(@Body() data: { mediaId: string; order: number }[]) {
+    return this.playlistsService.reorderPlaylistToTV(data);
   }
 
   // @Delete(':id')
