@@ -86,17 +86,23 @@ export class WebsocketsGateway
               currentMaxScreens: true,
               usedScreens: true,
               id: true,
+              plan: true,
             },
           },
           televisions: true,
         },
       });
 
-      const userMaxScreen =
-        existingUser && existingUser.Subscription && existingUser.Subscription[0].currentMaxScreens;
+      const subscription = existingUser.Subscription.find(
+        (it) => it.plan.planType === 'MAIN',
+      );
 
-      const userNumberTVAssocited =
-        existingUser && existingUser.Subscription[0].usedScreens;
+      const userMaxScreen =
+        existingUser &&
+        existingUser.Subscription &&
+        subscription.currentMaxScreens;
+
+      const userNumberTVAssocited = existingUser && subscription.usedScreens;
 
       const existingCode = await this.prisma.television.findFirst({
         where: {
@@ -124,10 +130,10 @@ export class WebsocketsGateway
       if (existingUser && userNumberTVAssocited >= userMaxScreen) {
         client.emit('connect-tv-code-error', {
           status: false,
-          error: `Vous avez déjà dépassé votre capacité d'écran pour votre abonnement ! Merci de souscrire à 'Option Ecran Supplémentaire'`,
+          error: `Vous avez déjà dépassé votre capacité d'écran pour votre abonnement ! Merci d'augmenter votre capacité d'écran`,
         });
 
-        return `Vous avez déjà dépassé votre capacité d'écran pour votre abonnement ! Merci de souscrire à 'Option Ecran Supplémentaire'`;
+        return `Vous avez déjà dépassé votre capacité d'écran pour votre abonnement ! Merci d'augmenter votre capacité d'écran`;
       }
 
       if (existingCode && typeof existingCode.userId === null) {
@@ -151,7 +157,7 @@ export class WebsocketsGateway
 
         await this.prisma.subscription.updateMany({
           data: {
-            usedScreens: existingUser.Subscription[0].usedScreens + 1
+            usedScreens: existingUser.Subscription[0].usedScreens + 1,
           },
           where: {
             id: existingUser.Subscription[0].id,
@@ -338,6 +344,8 @@ export class WebsocketsGateway
   notifyTV(deviceId: string, event: string, data: any): boolean {
     try {
       this.server.to(`tv:${deviceId}`).emit(event, data);
+      console.log("🚀 ~ WebsocketsGateway ~ notifyTV ~ deviceId:", deviceId)
+      console.log("🚀 ~ WebsocketsGateway ~ notifyTV ~ data:", data)
       this.logger.log(
         `📤 Notification envoyée - Device: ${deviceId}, Event: ${event}`,
       );
@@ -531,18 +539,17 @@ export class WebsocketsGateway
 
   // 🏠 Quitter une room
   @SubscribeMessage('leave-room')
-  handleLeaveRoom(
-    @MessageBody() data: { roomName: string },
+  async handleLeaveRoom(
+    @MessageBody() data: { tvId: string; roomName: string },
     @ConnectedSocket() client: Socket,
   ) {
     try {
-      const { roomName } = data;
+      const { roomName, tvId } = data;
+      console.log('🚀 ~ WebsocketsGateway ~ handleLeaveRoom ~ tvId:', tvId);
 
       if (!roomName) {
         return { event: 'error', message: 'Nom de room requis' };
       }
-
-      client.leave(roomName);
 
       this.logger.log(`🏠 Client ${client.id} a quitté la room ${roomName}`);
 
@@ -553,12 +560,20 @@ export class WebsocketsGateway
         timestamp: new Date(),
       });
 
+      await this.notifyTV(tvId, 'tv-dissociated', {
+        message: `TV ${tvId} EST DISSOCIÉ`,
+        tvId,
+        sync: false,
+      });
+
+      client.leave(roomName);
+
       return {
-        event: 'room-left',
+        event: 'tv-dissociated',
         data: {
           roomName,
           socketId: client.id,
-          message: `Quitté la room ${roomName} avec succès`,
+          message: `TV ${tvId} EST DISSOCIÉ`,
         },
       };
     } catch (error) {
@@ -583,36 +598,56 @@ export class WebsocketsGateway
 
     try {
       // Récupération des playlists actives pour la TV
-      const tvWithPlaylists = await this.prisma.television.findUnique({
-        where: { id: data.tvId },
+      // const tvWithPlaylistsA = await this.prisma.television.findUnique({
+      //   where: { id: data.tvId },
+      //   include: {
+      //     playlists: {
+      //       include: {
+      //         playlist: {
+      //           include: {
+      //             items: {
+      //               include: { media: true },
+      //             },
+      //           },
+      //         },
+      //       },
+      //     },
+      //   },
+      // });
+
+      const tvWithPlaylists = await this.prisma.playlist.findUnique({
+        where: {
+          id: data.tvId,
+          televisions: {
+            some: {
+              televisionId: data.tvId,
+            },
+          },
+          isActive: true,
+        },
         include: {
-          playlists: {
+          items: {
             include: {
-              playlist: {
-                include: {
-                  items: {
-                    include: { media: true },
-                  },
-                },
-              },
+              media: true,
             },
           },
         },
       });
 
       if (!tvWithPlaylists) {
-        client.emit('tv-find-playlist-error', { message: 'TV non trouvée' });
+        client.emit('tv-find-playlist-error', {
+          // message: 'TV non trouvée',
+          items: [],
+        });
         return false;
       }
 
       // Extraction des items des playlists
-      const playlistItems = tvWithPlaylists.playlists.flatMap((tvPlaylist) =>
-        tvPlaylist.playlist.items.map((item) => ({
-          uri: item.media.s3Url,
-          duration: item.media.duration,
-          id: item.id, // Optionnel: utile pour le frontend
-        })),
-      );
+      const playlistItems = tvWithPlaylists.items.map((item) => ({
+        uri: item.media.s3Url,
+        duration: item.media.duration,
+        id: item.id, // Optionnel: utile pour le frontend
+      }));
 
       client.emit('tv-find-playlist-success', {
         message: `Playlists pour la TV: ${data.tvId}`,
@@ -681,9 +716,22 @@ export class WebsocketsGateway
       }
 
       if (TV.playlists.length === 0) {
-        throw new Error(
-          `Playlist ${data.newPlaylistId} non trouvée ou inactive pour cette TV`,
+        console.log(
+          '🚀 ~ WebsocketsGateway ~ handleChangePlaylist ~ TV.playlists.length :',
+          TV.playlists.length,
         );
+
+        await this.notifyTV(data.tvId, 'tv-change-playlist-error', {
+          message: `Playlist ${data.newPlaylistId} non trouvée ou inactive pour cette TV`,
+          playlistId: data.newPlaylistId,
+          items: [],
+        });
+
+        return {
+          success: false,
+          message: `Playlist ${data.newPlaylistId} non trouvée ou inactive pour cette TV`,
+          items: [],
+        };
       }
 
       // ✅ Récupérer la playlist active

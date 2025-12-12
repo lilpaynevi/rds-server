@@ -56,7 +56,7 @@ export class UsersService {
   findAll() {
     return this.prisma.user.findMany({
       where: {
-        roles: "USER"
+        roles: 'USER',
       },
       include: {
         televisions: {
@@ -70,20 +70,20 @@ export class UsersService {
               include: {
                 media: {
                   include: {
-                    _count: true
-                  }
-                }
-              }
-            }
-          }
+                    _count: true,
+                  },
+                },
+              },
+            },
+          },
         },
         _count: {
           select: {
             medias: true,
             televisions: true,
-            playlists: true
-          }
-        }
+            playlists: true,
+          },
+        },
       },
     });
   }
@@ -117,9 +117,12 @@ export class UsersService {
         televisions: true,
         playlists: true,
         Subscription: {
+          where: {
+            status: 'ACTIVE',
+          },
           include: {
-            plan: true
-          }
+            plan: true,
+          },
         },
       },
     });

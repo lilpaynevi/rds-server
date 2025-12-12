@@ -399,7 +399,7 @@ export class TelevisionsService {
     return { message: 'Television deleted successfully' };
   }
 
-  async deleteTelevisionWithCleanup(televisionId: string) {
+  async deleteTelevisionWithCleanup(televisionId: string, user: any) {
     try {
       const existingTelevision = await this.prisma.television.findUnique({
         where: { id: televisionId },
@@ -423,6 +423,15 @@ export class TelevisionsService {
         // 3. Finalement, supprimer la télévision
         await tx.television.delete({
           where: { id: televisionId },
+        });
+
+        await tx.subscription.updateMany({
+          data: {
+            usedScreens: {
+              decrement: 1,
+            },
+          },
+          where: { userId: user.id },
         });
       });
 
@@ -470,5 +479,78 @@ export class TelevisionsService {
         return acc;
       }, {}),
     };
+  }
+
+  async dissociatedUserToTV(tvId: string, user: any) {
+    const findTV = await this.prisma.television.findUnique({
+      where: {
+        id: tvId,
+      },
+    });
+    console.log(
+      '🚀 ~ TelevisionsService ~ dissociatedUserToTV ~ findTV:',
+      findTV,
+    );
+
+    if (!findTV) {
+      return new Error('Pas de TV trouvé pour ' + tvId);
+    }
+
+    if (findTV.userId === user.sub) {
+      const dissociatedTV = await this.prisma.television.updateMany({
+        data: {
+          userId: null,
+        },
+        where: {
+          id: tvId,
+          userId: findTV.userId,
+        },
+      });
+
+      const changeUserBaseSecreen = await this.prisma.subscription.updateMany({
+        data: {
+          usedScreens: {
+            decrement: 1,
+          },
+        },
+        where: {
+          userId: user?.sub,
+        },
+      });
+
+      const disconnectAllPlaylist =
+        await this.prisma.playlistTelevision.updateMany({
+          data: {
+            televisionId: null,
+          },
+          where: {
+            televisionId: tvId,
+          },
+        });
+
+      const dissociatedSchedules = await this.prisma.schedule.updateMany({
+        data: {
+          televisionId: null,
+        },
+        where: {
+          televisionId: tvId,
+        },
+      });
+
+      return {
+        success: true,
+        metadata: {
+          tv: dissociatedTV,
+          userScreen: changeUserBaseSecreen.count,
+          disconnectAllPlaylist,
+          dissociatedSchedules
+        },
+      };
+    } else {
+      return {
+        success: false,
+        error: 'la TV n est pas lié à l user',
+      };
+    }
   }
 }

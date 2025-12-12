@@ -47,7 +47,7 @@ services:
       - rds_database
     environment:
       - NGROK_AUTHTOKEN=${NGROK_KEY} # Use environment variable for security
-    command: start --config=/etc/ngrok.yml rds_database
+    command: start --config=/etc/ngrok.yml rds_database 
 
 volumes:
   pgdata:

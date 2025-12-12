@@ -7,7 +7,7 @@ async function main() {
       {
         name: 'Abonnement RDS Connect',
         description:
-          "Profitez d'un mois offert lors de la souscription d'un an complet",
+          "Profitez d'une offre avec 5 écrans de base pendant un an",
         stripeProductId: 'prod_T3VwnfHNT2iwuO',
         stripePriceId: 'price_1S7OuqAQxGgWdn2vTmQFwkQs',
         price: 30.0,
@@ -16,7 +16,7 @@ async function main() {
       {
         name: 'Option Ecran supplémentaire',
         description:
-          "Profitez d'un mois offert lors de la souscription d'un an complet",
+          "Ajouter des écrans supplémentaires à votre abonnement afin d'etre à l'aise",
         stripeProductId: 'prod_T3VxhrYWMoBxlt',
         stripePriceId: 'price_1S7OvoAQxGgWdn2vEKo3nksD',
         price: 500.0,
@@ -25,7 +25,7 @@ async function main() {
       {
         name: 'Abonnement Annuel',
         description:
-          "Profitez d'un mois offert lors de la souscription d'un an complet",
+          "Profitez d'un mois offert lors de la souscription d'un an complet (5 écrans de base)",
         stripeProductId: 'prod_T3ksqDM0hP6MSO',
         stripePriceId: 'price_1S7dNCAQxGgWdn2vUVFHeO6S',
         price: 33000.0,

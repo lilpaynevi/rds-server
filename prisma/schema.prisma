@@ -240,10 +240,10 @@ model PlaylistTelevision {
   assignedAt DateTime @default(now())
 
   // Relations
-  playlist     Playlist   @relation(fields: [playlistId], references: [id], onDelete: Cascade)
+  playlist     Playlist    @relation(fields: [playlistId], references: [id], onDelete: Cascade)
   playlistId   String
-  television   Television @relation(fields: [televisionId], references: [id], onDelete: Cascade)
-  televisionId String
+  television   Television? @relation(fields: [televisionId], references: [id], onDelete: Cascade)
+  televisionId String?
 
   @@unique([playlistId, televisionId])
   @@map("playlist_televisions")

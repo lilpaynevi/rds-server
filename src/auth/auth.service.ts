@@ -21,7 +21,7 @@ export class AuthService {
   constructor(
     private readonly repository: UsersService,
     private jwtService: JwtService,
-  ) {}
+  ) { }
 
   async validateUser(createAuthDto: CreateAuthDto): Promise<User | null> {
     const user = await this.repository.findByUsername(createAuthDto.email);
@@ -113,6 +113,8 @@ export class AuthService {
       return {
         firstName: user.firstName,
         lastName: user.lastName,
+        company: user.company,
+        isActive: user.isActive,
         ...req,
         subscription: user.Subscription,
       };

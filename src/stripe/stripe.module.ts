@@ -8,7 +8,6 @@ import { PassportModule } from '@nestjs/passport';
   imports:[
       ConfigModule.forRoot(),
       PassportModule,
-      
     ],
   controllers: [StripeController],
   providers: [StripeService],

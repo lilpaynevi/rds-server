@@ -5,6 +5,7 @@ import { join } from 'path';
 import { existsSync } from 'fs';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { error } from 'console';
+import { Socket } from 'socket.io';
 
 @Injectable()
 export class PlaylistsService {
@@ -1166,7 +1167,7 @@ export class PlaylistsService {
         where: {
           isActive: true,
           televisions: {
-            some: {
+            every: {
               televisionId,
             },
           },
@@ -1175,7 +1176,6 @@ export class PlaylistsService {
           isActive: false,
         },
       });
-      console.log('🚀 ~ PlaylistsService ~ changeActivePlaylist ~ ppp:', ppp);
 
       // 3. Activer la playlist sélectionnée
       const updatedPlaylist = await prisma.playlist.update({
@@ -1197,9 +1197,10 @@ export class PlaylistsService {
           },
         },
         data: {
-          isActive: true,
+          isActive: data.isActive,
         },
       });
+
 
       return updatedPlaylist;
     });

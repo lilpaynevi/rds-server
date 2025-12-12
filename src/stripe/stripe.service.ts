@@ -38,20 +38,21 @@ export class StripeService {
             event;
           break;
 
-        case 'customer.subscription.created':
+        case 'customer.subscription.updated':
           //
-          return true;
+          return this.customerSubscriptionUpdated(event);
           break;
 
         case 'invoice.paid':
-          return '';
+          return this.receiveInvoicePaid(event);
+          break;
+
+        case 'invoice_payment.paid':
+          return this.receiveInvoicePaid(event);
           break;
 
         case 'customer.subscription.deleted':
-          (await 'this.handleSubscriptionCanceled(event.data.object as Stripe.Subscription) : ') +
-            event;
-          break;
-
+          return this.handleCustomerSubscriptionDeleted(event);
         default:
           this.logger.warn(`⚠️ Événement non géré: ${event.type}`);
       }
@@ -60,6 +61,154 @@ export class StripeService {
     } catch (error) {
       this.logger.error(`❌ Erreur webhook: ${error.message}`);
       throw error;
+    }
+  }
+
+  async receiveInvoicePaid(event) {
+    try {
+      const invoice = event.data.object as Stripe.Invoice;
+      const invoiceURL = invoice.hosted_invoice_url;
+      const user_email = invoice.customer_email;
+      const subscriptionId = String(
+        invoice.parent.subscription_details.subscription,
+      );
+
+      var searchUser = await this.prisma.user.findUnique({
+        where: {
+          email: user_email,
+        },
+      });
+
+      if (!searchUser) {
+        return 'Pas d user found';
+      }
+
+      var setInvoice = await this.prisma.invoice.create({
+        data: {
+          userId: searchUser.id,
+          subscriptionId,
+          stripeUrl: invoiceURL,
+        },
+      });
+
+      return setInvoice;
+    } catch (err) {
+      console.log(err);
+
+      return err;
+    }
+  }
+
+  async handleCustomerSubscriptionDeleted(event) {
+    try {
+      const subscription = event.data.object as Stripe.Subscription;
+
+      console.log('🚀 ~ handleSubscriptionCanceled ~ subscription:', {
+        id: subscription.id,
+        customer: subscription.customer,
+        status: subscription.status,
+        canceled_at: subscription.canceled_at,
+        ended_at: subscription.ended_at,
+      });
+
+      // Récupérer l'utilisateur par stripeSubscriptionId
+      const userSubscription = await this.prisma.subscription.findUnique({
+        where: { stripeSubscriptionId: subscription.id, status: 'ACTIVE' },
+        include: { user: true, plan: true },
+      });
+
+      if (!userSubscription) {
+        console.error(`❌ Subscription not found: ${subscription.id}`);
+        return;
+      }
+
+      console.log('📋 ~ Subscription details:', {
+        userId: userSubscription.user.id,
+        planType: userSubscription.plan.planType,
+        planName: userSubscription.plan.name,
+      });
+
+      // Si c'est un plan MAIN, annuler aussi les options associées
+      if (userSubscription.plan.planType === 'MAIN') {
+        console.log('🔍 ~ Checking for option subscriptions...');
+
+        const optionSubscriptions = await this.prisma.subscription.findFirst({
+          where: {
+            userId: userSubscription.user.id,
+            plan: {
+              planType: 'OPTION',
+            },
+            status: {
+              notIn: ['CANCELED'], // Ne pas annuler ce qui est déjà annulé
+            },
+          },
+          include: {
+            plan: true,
+          },
+        });
+
+        try {
+          if (optionSubscriptions) {
+            if (optionSubscriptions.stripeSubscriptionId) {
+              console.log(
+                `🗑️ ~ Canceling option subscription: ${optionSubscriptions.stripeSubscriptionId}`,
+              );
+
+              await this.stripe.subscriptions.cancel(
+                optionSubscriptions.stripeSubscriptionId,
+              );
+
+              await this.prisma.subscription.update({
+                where: { id: optionSubscriptions.id },
+                data: {
+                  status: 'CANCELED',
+                  canceledAt: new Date(),
+                  endedAt: new Date(),
+                },
+              });
+
+              console.log(
+                `✅ ~ Option subscription canceled: ${optionSubscriptions.id}`,
+              );
+            }
+          }
+        } catch (error) {
+          console.error(
+            `❌ ~ Error canceling option ${optionSubscriptions.id}:`,
+            error.message,
+          );
+        }
+      }
+
+      // Mettre à jour le statut de l'abonnement principal
+      const endDate = subscription.ended_at
+        ? new Date(subscription.ended_at * 1000)
+        : new Date();
+
+      await this.prisma.subscription.update({
+        where: {
+          stripeSubscriptionId: subscription.id,
+        },
+        data: {
+          status: 'CANCELED',
+          canceledAt: subscription.canceled_at
+            ? new Date(subscription.canceled_at * 1000)
+            : new Date(),
+          endedAt: endDate,
+        },
+      });
+
+      console.log(
+        `✅ Subscription canceled for user: ${userSubscription.user.id}`,
+      );
+
+      return {
+        success: true,
+        userId: userSubscription.user.id,
+        subscriptionId: subscription.id,
+      };
+    } catch (error) {
+      console.error('❌ Error handling subscription canceled:', error);
     }
   }
 
@@ -133,6 +282,7 @@ export class StripeService {
       const existingSubscription = await this.prisma.subscription.findUnique({
         where: {
           stripeSubscriptionId: subscriptionId,
+          userId: user.id,
         },
         include: {
           plan: true,
@@ -140,7 +290,10 @@ export class StripeService {
       });
 
       if (existingSubscription) {
-        console.log('Abonnement déjà existant:', existingSubscription.id);
+        console.log(
+          'Abonnement OPTION déjà existant:',
+          existingSubscription.id,
+        );
         return {
           success: true,
           subscriptionId: existingSubscription.id,
@@ -189,6 +342,204 @@ export class StripeService {
     }
   }
 
+  async customerSubscriptionUpdated(event) {
+    try {
+      console.log('\n=== 🔄 WEBHOOK: SUBSCRIPTION UPDATED ===');
+      console.log('Event ID:', event.id);
+      console.log('Event type:', event.type);
+
+      const subscription = event.data.object;
+      console.log('Subscription ID:', subscription.id);
+      console.log('Status:', subscription.status);
+
+      // 1️⃣ Récupérer les informations de l'abonnement Stripe
+      const customerId = subscription.customer as string;
+      const subscriptionId = subscription.id;
+      const status = subscription.status;
+      const cancelAtPeriodEnd = subscription.cancel_at_period_end;
+      const canceledAt = subscription.canceled_at
+        ? new Date(subscription.canceled_at * 1000)
+        : null;
+
+      console.log('Customer ID:', customerId);
+      console.log('Cancel at period end:', cancelAtPeriodEnd);
+
+      // 2️⃣ Récupérer le customer Stripe pour avoir l'email
+      const customer = await this.stripe.customers.retrieve(customerId);
+      const email = (customer as Stripe.Customer).email;
+
+      console.log('Customer email:', email);
+
+      if (!email) {
+        throw new Error('Email client non trouvé');
+      }
+
+      // 3️⃣ Trouver l'utilisateur dans la base de données
+      const user = await this.prisma.user.findUnique({
+        where: { email },
+      });
+
+      if (!user) {
+        console.error(`❌ Utilisateur non trouvé pour l'email: ${email}`);
+        throw new Error(`Utilisateur non trouvé: ${email}`);
+      }
+
+      console.log('User found:', user.id);
+
+      // 4️⃣ Récupérer l'abonnement existant dans la DB
+      const existingSubscription = await this.prisma.subscription.findUnique({
+        where: { stripeSubscriptionId: subscriptionId },
+        include: { plan: true },
+      });
+
+      if (!existingSubscription) {
+        console.error(`❌ Abonnement non trouvé: ${subscriptionId}`);
+        throw new Error(
+          `Abonnement non trouvé dans la base de données: ${subscriptionId}`,
+        );
+      }
+
+      console.log('Existing subscription:', existingSubscription.id);
+      console.log('Plan type:', existingSubscription.plan.planType);
+
+      // 5️⃣ Extraire les items de l'abonnement
+      const subscriptionItems = subscription.items.data;
+      const firstItem = subscriptionItems[0];
+      const quantity = subscription.quantity || 0;
+      const priceId = firstItem.price.id;
+
+      console.log('Subscription items count:', subscriptionItems.length);
+      console.log('Quantity:', quantity);
+      console.log('Price ID:', priceId);
+
+      // 7️⃣ Déterminer si c'est un abonnement MAIN ou OPTION
+      const isMainSubscription = existingSubscription.plan.planType === 'MAIN';
+      const isOptionSubscription =
+        existingSubscription.plan.planType === 'OPTION';
+
+      console.log('Is main subscription:', isMainSubscription);
+      console.log('Is option subscription:', isOptionSubscription);
+
+      // 8️⃣ Mettre à jour l'abonnement dans la base de données
+      const updatedSubscription = await this.prisma.subscription.update({
+        where: { stripeSubscriptionId: subscriptionId },
+        data: {
+          quantity: quantity,
+          cancelAtPeriodEnd,
+          canceledAt,
+          endedAt: status === 'canceled' ? new Date() : null,
+          metadata: {
+            lastUpdated: new Date().toISOString(),
+            webhookEventId: event.id,
+            stripeStatus: status,
+          },
+        },
+        include: { plan: true },
+      });
+
+      console.log('✅ Subscription updated in database');
+
+      // 9️⃣ Si c'est une option, mettre à jour le currentMaxScreens de l'abonnement principal
+      if (isOptionSubscription) {
+        console.log('\n📺 Mise à jour des écrans pour abonnement OPTION');
+
+        // Récupérer l'abonnement principal
+        const mainSubscription = await this.prisma.subscription.findFirst({
+          where: {
+            userId: user.id,
+            status: 'ACTIVE',
+            plan: {
+              planType: 'MAIN',
+            },
+          },
+          include: { plan: true },
+        });
+
+        if (mainSubscription) {
+          const baseScreens = mainSubscription.plan.maxScreens || 5;
+          const additionalScreens = status === 'canceled' ? 0 : quantity;
+          const newTotalScreens = additionalScreens;
+
+          console.log(`   Base screens: ${baseScreens}`);
+          console.log(`   Additional screens: ${additionalScreens}`);
+          console.log(`   New total: ${newTotalScreens}`);
+
+          // Mettre à jour le currentMaxScreens
+          await this.prisma.subscription.update({
+            where: { id: mainSubscription.id },
+            data: {
+              currentMaxScreens: baseScreens + newTotalScreens,
+            },
+          });
+
+          console.log('✅ Main subscription screens updated');
+        } else {
+          console.warn(
+            '⚠️ Abonnement principal non trouvé pour mettre à jour les écrans',
+          );
+        }
+      }
+
+      // 🔟 Si l'abonnement principal est annulé, mettre à jour toutes les options
+      if (
+        isMainSubscription &&
+        (status === 'canceled' || status === 'unpaid')
+      ) {
+        console.log('\n🚫 Abonnement principal annulé - Gestion des options');
+
+        // Annuler toutes les options actives
+        const activeOptions = await this.prisma.subscription.findMany({
+          where: {
+            userId: user.id,
+            status: 'ACTIVE',
+            plan: {
+              planType: 'OPTION',
+            },
+          },
+        });
+
+        console.log(`   Options actives trouvées: ${activeOptions.length}`);
+
+        for (const option of activeOptions) {
+          try {
+            // Annuler l'abonnement Stripe
+            await this.stripe.subscriptions.cancel(option.stripeSubscriptionId);
+
+            // Mettre à jour dans la DB
+            await this.prisma.subscription.update({
+              where: { id: option.id },
+              data: {
+                status: 'CANCELED',
+                canceledAt: new Date(),
+                endedAt: new Date(),
+                cancelAtPeriodEnd: false,
+              },
+            });
+
+            console.log(`   ✅ Option annulée: ${option.id}`);
+          } catch (error) {
+            console.error(
+              `   ❌ Erreur annulation option ${option.id}:`,
+              error.message,
+            );
+          }
+        }
+      }
+
+      console.log('\n✅ WEBHOOK TRAITÉ AVEC SUCCÈS\n');
+
+      return {
+        success: true,
+        message: 'Abonnement mis à jour avec succès',
+        subscription: updatedSubscription,
+      };
+    } catch (error) {
+      console.error('\n❌ ERREUR WEBHOOK SUBSCRIPTION UPDATED:', error);
+      console.error('Stack:', error.stack);
+      throw error;
+    }
+  }
+
   // Gérer les abonnements principaux (avec gestion intelligente des changements)
   async handleMainSubscription(
     user,
@@ -211,13 +562,13 @@ export class StripeService {
     const baseMaxScreens = subscriptionPlan.maxScreens;
     // ❌ const totalMaxScreens = baseMaxScreens + quantity;
     // ✅ Pour un plan principal, la quantité multiplie les écrans de base
-    const totalMaxScreens = baseMaxScreens + quantity;
+    const totalMaxScreens = baseMaxScreens;
 
     console.log('📊 Calcul plan principal:', {
       baseMaxScreens,
       quantity,
       totalMaxScreens,
-      formula: `${baseMaxScreens} × ${quantity} = ${totalMaxScreens}`,
+      formula: `${baseMaxScreens} + ${quantity} = ${totalMaxScreens}`,
     });
 
     // Vérifier s'il y a déjà un abonnement principal actif
@@ -259,6 +610,7 @@ export class StripeService {
     // Créer le nouvel abonnement principal
     const subscriptionCreate = await this.prisma.subscription.create({
       data: {
+        id: subscriptionId,
         userId: user.id,
         stripeSubscriptionId: subscriptionId,
         planId: subscriptionPlan.id,
@@ -328,125 +680,134 @@ export class StripeService {
     invoiceId,
     stripeData,
   ) {
-    console.log("➕ Ajout d'une OPTION (abonnement principal préservé)");
-    console.log('Option:', subscriptionPlan.name, 'Quantité:', quantity);
+    try {
+      console.log("➕ Ajout d'une OPTION (abonnement principal préservé)");
+      console.log('Option:', subscriptionPlan.name, 'Quantité:', quantity);
 
-    // ✅ Vérifier qu'il existe un abonnement principal actif
-    const mainSubscription = await this.prisma.subscription.findFirst({
-      where: {
-        userId: user.id,
-        status: 'ACTIVE',
-        plan: {
-          planType: 'MAIN',
-        },
-      },
-      include: {
-        plan: true,
-      },
-    });
-
-    if (!mainSubscription) {
-      throw new Error(
-        `Impossible d'ajouter une option sans abonnement principal actif. 
-      Utilisateur: ${user.email}`,
-      );
-    }
-
-    console.log('✅ Abonnement principal trouvé:', {
-      id: mainSubscription.id,
-      plan: mainSubscription.plan.name,
-      currentMaxScreens: mainSubscription.currentMaxScreens,
-    });
-
-    // ✅ CORRECTION IMPORTANTE : Pour les options, la quantité = nombre d'écrans ajoutés
-    // ❌ const additionalScreensPerUnit = subscriptionPlan.maxScreens || 0;
-    // ❌ const totalAdditionalScreens = additionalScreensPerUnit + quantity;
-
-    // ✅ Pour une option, quantity = nombre direct d'écrans à ajouter
-    const totalAdditionalScreens = quantity;
-
-    console.log("📊 Ressources de l'option:", {
-      optionName: subscriptionPlan.name,
-      quantity: quantity,
-      totalAdditionalScreens: totalAdditionalScreens,
-      explanation:
-        "La quantité représente directement le nombre d'écrans ajoutés",
-    });
-
-    // ✅ Créer l'abonnement pour l'option (en tant qu'add-on)
-    const optionSubscription = await this.prisma.subscription.create({
-      data: {
-        userId: user.id,
-        stripeSubscriptionId: subscriptionId,
-        planId: subscriptionPlan.id,
-        currentPeriodStart: periodStart,
-        currentPeriodEnd: periodEnd,
-        status: 'ACTIVE',
-        currentMaxScreens: totalAdditionalScreens, // Nombre d'écrans apportés par cette option
-        usedScreens: 0,
-        quantity: quantity,
-        metadata: {
-          customFields: custom_fields,
-          stripeCustomerId: customerId,
-          checkoutSessionId: sessionId,
-          invoiceId: invoiceId,
-          planType: 'OPTION',
-          parentSubscriptionId: mainSubscription.id,
-          optionDetails: {
-            type: subscriptionPlan.name,
-            quantity: quantity,
-            screensAdded: totalAdditionalScreens,
-            calculation: `+${quantity} écrans`,
+      // ✅ Vérifier qu'il existe un abonnement principal actif
+      const mainSubscription = await this.prisma.subscription.findFirst({
+        where: {
+          userId: user.id,
+          status: 'ACTIVE',
+          plan: {
+            planType: 'MAIN',
           },
-          addedAt: new Date(),
         },
-      },
-      include: {
-        plan: true,
-      },
-    });
+        include: {
+          plan: true,
+        },
+      });
+      console.log(
+        '🚀 ~ StripeService ~ handleOptionSubscription ~ mainSubscription:',
+        mainSubscription,
+      );
 
-    // ✅ Mettre à jour les limites de l'abonnement principal (cumul avec les options)
-    const updatedMainSubscription = await this.updateMainSubscriptionLimits(
-      mainSubscription.id,
-      user.id,
-    );
+      if (!mainSubscription) {
+        throw new Error(
+          `Impossible d'ajouter une option sans abonnement principal actif. 
+      Utilisateur: ${user.email}`,
+        );
+      }
 
-    console.log('🎉 Option ajoutée avec succès:', {
-      optionSubscriptionId: optionSubscription.id,
-      mainSubscriptionId: mainSubscription.id,
-      addedScreens: totalAdditionalScreens,
-      previousTotalScreens: mainSubscription.currentMaxScreens,
-      newTotalScreens: updatedMainSubscription.currentMaxScreens,
-      optionQuantity: quantity,
-    });
+      console.log('✅ Abonnement principal trouvé:', {
+        id: mainSubscription.id,
+        plan: mainSubscription.plan.name,
+        currentMaxScreens: mainSubscription.currentMaxScreens,
+      });
 
-    // Récupérer toutes les options actives pour info
-    const allActiveOptions = await this.prisma.subscription.findMany({
-      where: {
+      // ✅ CORRECTION IMPORTANTE : Pour les options, la quantité = nombre d'écrans ajoutés
+      // ❌ const additionalScreensPerUnit = subscriptionPlan.maxScreens || 0;
+      // ❌ const totalAdditionalScreens = additionalScreensPerUnit + quantity;
+
+      // ✅ Pour une option, quantity = nombre direct d'écrans à ajouter
+      const totalAdditionalScreens =
+        mainSubscription.currentMaxScreens + quantity;
+
+      console.log("📊 Ressources de l'option:", {
+        optionName: subscriptionPlan.name,
+        quantity: quantity,
+        totalAdditionalScreens: totalAdditionalScreens,
+        explanation:
+          "La quantité représente directement le nombre d'écrans ajoutés",
+      });
+
+      // ✅ Créer l'abonnement pour l'option (en tant qu'add-on)
+      const optionSubscription = await this.prisma.subscription.create({
+        data: {
+          userId: user.id,
+          stripeSubscriptionId: subscriptionId,
+          planId: subscriptionPlan.id,
+          currentPeriodStart: periodStart,
+          currentPeriodEnd: periodEnd,
+          status: 'ACTIVE',
+          currentMaxScreens: totalAdditionalScreens, // Nombre d'écrans apportés par cette option
+          usedScreens: 0,
+          quantity: quantity,
+          metadata: {
+            customFields: custom_fields,
+            stripeCustomerId: customerId,
+            checkoutSessionId: sessionId,
+            invoiceId: invoiceId,
+            planType: 'OPTION',
+            parentSubscriptionId: mainSubscription.id,
+            optionDetails: {
+              type: subscriptionPlan.name,
+              quantity: quantity,
+              screensAdded: totalAdditionalScreens,
+              calculation: `+${quantity} écrans`,
+            },
+            addedAt: new Date(),
+          },
+        },
+        include: {
+          plan: true,
+        },
+      });
+
+      // ✅ Mettre à jour les limites de l'abonnement principal (cumul avec les options)
+      const updatedMainSubscription = await this.updateMainSubscriptionLimits(
+        mainSubscription.id,
+        user.id,
+      );
+
+      console.log('🎉 Option ajoutée avec succès:', {
+        optionSubscriptionId: optionSubscription.id,
+        mainSubscriptionId: mainSubscription.id,
+        addedScreens: totalAdditionalScreens,
+        previousTotalScreens: mainSubscription.currentMaxScreens,
+        newTotalScreens: updatedMainSubscription.currentMaxScreens,
+        optionQuantity: quantity,
+      });
+
+      // Récupérer toutes les options actives pour info
+      const allActiveOptions = await this.prisma.subscription.findMany({
+        where: {
+          userId: user.id,
+          status: 'ACTIVE',
+          plan: { planType: 'OPTION' },
+        },
+        include: { plan: true },
+      });
+
+      return {
+        success: true,
+        subscriptionId: optionSubscription.id,
+        mainSubscriptionId: mainSubscription.id,
         userId: user.id,
-        status: 'ACTIVE',
-        plan: { planType: 'OPTION' },
-      },
-      include: { plan: true },
-    });
-
-    return {
-      success: true,
-      subscriptionId: optionSubscription.id,
-      mainSubscriptionId: mainSubscription.id,
-      userId: user.id,
-      planId: subscriptionPlan.id,
-      type: 'OPTION',
-      action: 'OPTION_ADDED',
-      quantity: quantity,
-      additionalScreens: totalAdditionalScreens,
-      previousTotalScreens: mainSubscription.currentMaxScreens,
-      newTotalMaxScreens: updatedMainSubscription.currentMaxScreens,
-      activeOptionsCount: allActiveOptions.length,
-      customFields: custom_fields,
-      message: `Option ${subscriptionPlan.name} (${quantity} écrans) ajoutée avec succès.`,
-    };
+        planId: subscriptionPlan.id,
+        type: 'OPTION',
+        action: 'OPTION_ADDED',
+        quantity: quantity,
+        additionalScreens: totalAdditionalScreens,
+        previousTotalScreens: mainSubscription.currentMaxScreens,
+        newTotalMaxScreens: updatedMainSubscription.currentMaxScreens,
+        activeOptionsCount: allActiveOptions.length,
+        customFields: custom_fields,
+        message: `Option ${subscriptionPlan.name} (${quantity} écrans) ajoutée avec succès.`,
+      };
+    } catch (error) {
+      console.log('ERREUR : ', error);
+    }
   }
 
   // Fonction inchangée mais avec logs améliorés
@@ -454,7 +815,12 @@ export class StripeService {
     console.log("🔄 Mise à jour des limites de l'abonnement principal...");
 
     const mainSubscription = await this.prisma.subscription.findUnique({
-      where: { id: mainSubscriptionId },
+      where: {
+        id: mainSubscriptionId,
+        plan: {
+          planType: 'MAIN',
+        },
+      },
       include: { plan: true },
     });
 
@@ -475,7 +841,7 @@ export class StripeService {
     console.log('📋 Options actives trouvées:', activeOptions.length);
 
     // ✅ CORRECTION : Écrans de base du plan principal
-    const mainPlanBaseScreens = mainSubscription.plan.maxScreens || 1;
+    const mainPlanBaseScreens = mainSubscription.currentMaxScreens || 1;
 
     // ✅ CORRECTION : Écrans des options (quantity = écrans ajoutés directement)
     let totalAdditionalScreens = 0;
@@ -508,22 +874,6 @@ export class StripeService {
       where: { id: mainSubscriptionId },
       data: {
         currentMaxScreens: finalMaxScreens,
-        metadata: {
-          limitsCalculation: {
-            baseScreens: mainPlanBaseScreens,
-            baseCalculation: `${mainSubscription.plan.maxScreens} × ${mainSubscription.quantity}`,
-            optionsScreens: totalAdditionalScreens,
-            totalScreens: finalMaxScreens,
-            activeOptionsCount: activeOptions.length,
-            lastCalculated: new Date(),
-          },
-          activeOptions: activeOptions.map((opt) => ({
-            id: opt.id,
-            planName: opt.plan.name,
-            quantity: opt.quantity,
-            screensAdded: opt.quantity, // ✅ Quantité = écrans ajoutés
-          })),
-        },
       },
     });
 
@@ -601,6 +951,72 @@ export class StripeService {
     } catch (error) {
       console.error('Error creating checkout session:', error);
       return { status: 404, error };
+    }
+  }
+
+  async updateCheckoutSession(data: {
+    subscriptionId: string;
+    quantity: number;
+  }) {
+    try {
+      const subscription = await this.stripe.subscriptions.retrieve(
+        data.subscriptionId,
+      );
+      const subscriptionItem = subscription.items.data[0];
+      const subscriptionItemId = subscription.items.data[0].id;
+      const currentQuantity = subscriptionItem.quantity;
+      const newQuantity = Number(data.quantity);
+
+      const updatedSubscription = await this.stripe.subscriptions.update(
+        subscription.id,
+        {
+          items: [
+            {
+              id: subscriptionItemId,
+              quantity: newQuantity,
+            },
+          ],
+          // Proration par défaut : le client paie/reçoit un crédit proportionnel
+          proration_behavior: 'create_prorations',
+        },
+      );
+
+      return updatedSubscription;
+    } catch (error) {
+      console.error('Erreur lors de la mise à jour:', error);
+      throw error;
+    }
+  }
+
+  async cancelSubscription(data: { subscriptionId: string }) {
+    console.log('🚀 ~ StripeService ~ cancelSubscription ~ data:', data);
+
+    // Validation de la donnée
+    if (!data || !data.subscriptionId) {
+      throw new Error('subscriptionId est requis pour annuler un abonnement');
+    }
+
+    // Validation du format
+    if (
+      typeof data.subscriptionId !== 'string' ||
+      data.subscriptionId.trim() === ''
+    ) {
+      throw new Error('stripeSubscriptionId doit être une chaîne non vide');
+    }
+
+    try {
+      const subscription = await this.stripe.subscriptions.cancel(
+        data.subscriptionId,
+      );
+
+      if (!subscription) {
+        throw new Error("Impossible d'annuler l'abonnement");
+      }
+
+      return subscription;
+    } catch (error) {
+      console.error('🚀 ~ Erreur cancelSubscription:', error);
+      throw new Error(`Erreur lors de l'annulation: ${error.message}`);
     }
   }
 

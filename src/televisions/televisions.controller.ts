@@ -80,6 +80,13 @@ export class TelevisionsController {
     return this.televisionsService.update(id, updateTelevisionDto);
   }
 
+  @UseGuards(JwtAuthGuard)
+  @Get(':tvId/user/dissociated')
+  dissociatedUserToTV(@Param('tvId') tvId: string, @GetUser() user: any) {
+    console.log("🚀 ~ TelevisionsController ~ dissociatedUserToTV ~ tvId:", tvId)
+    return this.televisionsService.dissociatedUserToTV(tvId, user);
+  }
+
   @Patch(':id/status')
   updateStatus(
     @Param('id', ParseUUIDPipe) id: string,
@@ -88,9 +95,10 @@ export class TelevisionsController {
     return this.televisionsService.updateStatus(id, status);
   }
 
+  @UseGuards(JwtAuthGuard)
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
-  remove(@Param('id', ParseUUIDPipe) id: string) {
-    return this.televisionsService.deleteTelevisionWithCleanup(id);
+  remove(@Param('id', ParseUUIDPipe) id: string, @GetUser() user: any) {
+    return this.televisionsService.deleteTelevisionWithCleanup(id, user);
   }
 }

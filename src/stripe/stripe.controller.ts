@@ -19,7 +19,7 @@ import { GetUser } from 'src/decorator/get-user.decorator';
 
 @Controller('stripe')
 export class StripeController {
-  constructor(private readonly stripeService: StripeService) {}
+  constructor(private readonly stripeService: StripeService) { }
 
   @Post('webhook')
   async handleWebhook(
@@ -43,13 +43,22 @@ export class StripeController {
 
   @Get('/subscriptions')
   async findAll() {
-    // Logique pour créer une session checkout
     return this.stripeService.findAll();
   }
 
   @Post('create-checkout-session')
   async createCheckoutSession(@Body() body: any) {
     return this.stripeService.createCheckoutSession(body);
+  }
+
+  @Post('update-checkout-session')
+  async updateCheckoutSession(@Body() body: any) {
+    return this.stripeService.updateCheckoutSession(body);
+  }
+
+  @Post('cancel-subscription')
+  async cancelSubscription(@Body() body: any) {
+    return this.stripeService.cancelSubscription(body)
   }
 
   @Post('/create-payment-intent')
