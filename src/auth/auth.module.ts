@@ -8,12 +8,15 @@ import { PassportModule } from '@nestjs/passport';
 import { JwtStrategy } from './auth.strategy';
 import { UsersService } from 'src/users/users.service';
 import { UsersModule } from 'src/users/users.module';
+import { MailModule } from 'src/mail/mail.module';
 dotenv.config();
 
 @Module({
   imports:[UsersModule,
     ConfigModule.forRoot(),
     PassportModule,
+    MailModule,
+    
     JwtModule.register({
       global: true,
       secret: process.env.JWT_SECRET,

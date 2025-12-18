@@ -1005,6 +1005,21 @@ export class StripeService {
     }
 
     try {
+      const user = await this.prisma.subscription.findUnique({
+        where: { stripeSubscriptionId: data.subscriptionId },
+      });
+
+      if (user) {
+        await this.prisma.subscription.updateMany({
+          where: {
+            userId: user.id,
+          },
+          data: {
+            status: 'CANCELED',
+          },
+        });
+      }
+
       const subscription = await this.stripe.subscriptions.cancel(
         data.subscriptionId,
       );

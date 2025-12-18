@@ -23,27 +23,33 @@ export class AuthController {
     return this.authService.login(createAuthDto);
   }
 
-
   @Post('register')
   async register(@Body() createAuthDto: any) {
     return this.authService.register(createAuthDto);
   }
 
   @Post('forgot-password')
-  async forgotPassword(@Body() { email }: { email: string }): Promise<void> {
+  async forgotPassword(
+    @Body() { email }: { email: string },
+  ): Promise<{ message: string }> {
     return this.authService.forgotPassword(email);
   }
 
   @Post('reset-password')
   async resetPassword(
     @Body() { token, password }: { token: string; password: string },
-  ): Promise<void> {
-    return this.authService.resetPassword(token, password);
+  ): Promise<{ message: string }> {
+    return this.authService.resetPassword({ token, password });
   }
 
   @UseGuards(JwtAuthGuard)
   @Get('/me')
   getProfile(@GetUser() user: any) {
     return this.authService.getProfile(user);
+  }
+
+  @Post('validate-reset-token')
+  async validateResetToken(@Body('token') token: string) {
+    return this.authService.validateResetToken(token);
   }
 }

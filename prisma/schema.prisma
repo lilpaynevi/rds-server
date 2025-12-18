@@ -11,31 +11,32 @@ datasource db {
 }
 
 model User {
-  id         String    @id @default(uuid())
-  firstName  String
-  lastName   String
-  company    String?
-  department String?
-  city       String?
-  email      String    @unique
-  password   String
-  role       UserRole  @default(USER)
-  avatar     String?
-  phone      String?
-  roles      UserRole  @default(USER)
-  isActive   Boolean   @default(true)
-  lastLogin  DateTime?
-  createdAt  DateTime  @default(now())
-  updatedAt  DateTime  @updatedAt
-  isVerify   Boolean   @default(false)
-
+  id                   String         @id @default(uuid())
+  firstName            String
+  lastName             String
+  company              String?
+  department           String?
+  city                 String?
+  email                String         @unique
+  password             String
+  role                 UserRole       @default(USER)
+  avatar               String?
+  phone                String?
+  roles                UserRole       @default(USER)
+  isActive             Boolean        @default(true)
+  lastLogin            DateTime?
+  createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @updatedAt
+  isVerify             Boolean        @default(false)
+  resetPasswordToken   String?        @default("")
+  resetPasswordExpires DateTime?
   // Relations
-  televisions  Television[]
-  medias       Media[]
-  playlists    Playlist[]
-  schedules    Schedule[]
-  Subscription Subscription[]
-  Invoice      Invoice[]
+  televisions          Television[]
+  medias               Media[]
+  playlists            Playlist[]
+  schedules            Schedule[]
+  Subscription         Subscription[]
+  Invoice              Invoice[]
 
   @@map("users")
 }

@@ -11,6 +11,8 @@ import { UploadsModule } from './uploads/uploads.module';
 import { StripeModule } from './stripe/stripe.module';
 import { ConfigModule } from '@nestjs/config';
 import { SchedulesModule } from './schedules/schedules.module';
+import { MailService } from './mail/mail.service';
+import { MailModule } from './mail/mail.module';
 
 @Module({
   imports: [UsersModule, 
