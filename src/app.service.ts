@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 
 @Injectable()
 export class AppService {
@@ -686,6 +686,537 @@ export class AppService {
           </script>
         </body>
       </html>
+    `;
+  }
+
+  /**
+   * Simule l'envoi d'un email de support
+   * En production, remplacer par un vrai service d'envoi (Nodemailer, SendGrid, etc.)
+   */
+  async sendSupportEmail(
+    data: any,
+  ): Promise<{ success: boolean; message: string }> {
+    try {
+      // Validation des données
+      this.validateContactForm(data);
+
+      // Simulation de l'envoi d'email
+      console.log('📧 ====== EMAIL DE SUPPORT ======');
+      console.log('📤 Destinataire:', 'support@rdsconnect.com');
+      console.log('👤 De:', `${data.name} <${data.email}>`);
+      console.log('📋 Sujet:', data.subject);
+      console.log('🏢 Entreprise:', data.company || 'Non renseignée');
+      console.log('🆔 User ID:', data.userId || 'Non connecté');
+      console.log('💬 Message:');
+      console.log('─────────────────────────────────');
+      console.log(data.message);
+      console.log('─────────────────────────────────');
+      console.log('📅 Date:', new Date().toLocaleString('fr-FR'));
+      console.log('================================\n');
+
+      // Simulation de l'email de confirmation à l'utilisateur
+      console.log('📧 ====== EMAIL DE CONFIRMATION ======');
+      console.log('📤 Destinataire:', data.email);
+      console.log('📋 Sujet:', 'Votre demande a bien été reçue - RDS Connect');
+      console.log('💬 Message:');
+      console.log(`Bonjour ${data.name},
+
+Nous avons bien reçu votre message concernant : "${data.subject}"
+
+Notre équipe support va l'examiner et vous répondra dans les plus brefs délais, 
+généralement sous 24-48 heures ouvrées.
+
+En attendant, n'hésitez pas à consulter notre FAQ ou notre documentation.
+
+Cordialement,
+L'équipe RDS Connect
+
+---
+RDS CONNECT
+26 Avenue du 6 juin 1944, 95190 GOUSSAINVILLE
+rdsconnect.contact@gmail.com`);
+      console.log('======================================\n');
+
+      // Simulation d'un délai d'envoi
+      await this.simulateEmailSending();
+
+      return {
+        success: true,
+        message:
+          'Votre message a été envoyé avec succès. Nous vous répondrons dans les plus brefs délais.',
+      };
+    } catch (error) {
+      console.error("❌ Erreur lors de l'envoi de l'email:", error);
+      throw new BadRequestException(
+        error.message ||
+          "Une erreur est survenue lors de l'envoi de votre message.",
+      );
+    }
+  }
+
+  /**
+   * Validation des données du formulaire
+   */
+  private validateContactForm(data: any): void {
+    const errors: string[] = [];
+
+    // Validation du nom
+    if (!data.name || data.name.trim().length < 2) {
+      errors.push('Le nom doit contenir au moins 2 caractères');
+    }
+    if (data.name && data.name.length > 100) {
+      errors.push('Le nom ne peut pas dépasser 100 caractères');
+    }
+
+    // Validation de l'email
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!data.email || !emailRegex.test(data.email)) {
+      errors.push('Email invalide');
+    }
+
+    // Validation du sujet
+    if (!data.subject || data.subject.trim().length < 5) {
+      errors.push('Le sujet doit contenir au moins 5 caractères');
+    }
+    if (data.subject && data.subject.length > 200) {
+      errors.push('Le sujet ne peut pas dépasser 200 caractères');
+    }
+
+    // Validation du message
+    if (!data.message || data.message.trim().length < 20) {
+      errors.push('Le message doit contenir au moins 20 caractères');
+    }
+    if (data.message && data.message.length > 2000) {
+      errors.push('Le message ne peut pas dépasser 2000 caractères');
+    }
+
+    if (errors.length > 0) {
+      throw new BadRequestException(errors.join(', '));
+    }
+  }
+
+  /**
+   * Simule un délai d'envoi d'email (500ms - 1.5s)
+   */
+  private async simulateEmailSending(): Promise<void> {
+    const delay = Math.random() * 1000 + 500; // Entre 500ms et 1500ms
+    return new Promise((resolve) => setTimeout(resolve, delay));
+  }
+
+  /**
+   * Affiche le formulaire de contact
+   */
+  displayContactForm(user?: any): string {
+    const userName = user ? `${user.firstName} ${user.lastName}` : '';
+    const userEmail = user?.email || '';
+    const userCompany = user?.company || '';
+    const userId = user?.id || '';
+
+    return `
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Contactez-nous - RDS Connect</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #3857e2ff 0%, #285fceff 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .container {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            max-width: 600px;
+            width: 100%;
+            padding: 40px;
+            animation: slideUp 0.5s ease-out;
+        }
+
+        @keyframes slideUp {
+            from {
+                opacity: 0;
+                transform: translateY(30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .logo {
+            font-size: 48px;
+            margin-bottom: 10px;
+        }
+
+        h1 {
+            color: #1f2937;
+            font-size: 28px;
+            margin-bottom: 10px;
+        }
+
+        .subtitle {
+            color: #6b7280;
+            font-size: 16px;
+        }
+
+        .user-info {
+            background: #f3f4f6;
+            padding: 16px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+        }
+
+        .user-info p {
+            color: #4b5563;
+            font-size: 14px;
+            margin-bottom: 4px;
+        }
+
+        .user-info strong {
+            color: #1f2937;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        label {
+            display: block;
+            color: #374151;
+            font-weight: 600;
+            margin-bottom: 8px;
+            font-size: 14px;
+        }
+
+        input, textarea, select {
+            width: 100%;
+            padding: 12px 16px;
+            border: 2px solid #e5e7eb;
+            border-radius: 10px;
+            font-size: 15px;
+            transition: all 0.3s ease;
+            font-family: inherit;
+        }
+
+        input:focus, textarea:focus, select:focus {
+            outline: none;
+            border-color: #3857e2ff;
+            box-shadow: 0 0 0 3px rgba(56, 87, 226, 0.1);
+        }
+
+        textarea {
+            resize: vertical;
+            min-height: 150px;
+        }
+
+        .char-count {
+            text-align: right;
+            color: #9ca3af;
+            font-size: 12px;
+            margin-top: 4px;
+        }
+
+        .submit-btn {
+            width: 100%;
+            padding: 14px;
+            background: linear-gradient(135deg, #3857e2ff 0%, #285fceff 100%);
+            color: white;
+            border: none;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        .submit-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(56, 87, 226, 0.3);
+        }
+
+        .submit-btn:active {
+            transform: translateY(0);
+        }
+
+        .submit-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .alert {
+            padding: 12px 16px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            font-size: 14px;
+            display: none;
+        }
+
+        .alert.show {
+            display: block;
+            animation: slideDown 0.3s ease-out;
+        }
+
+        @keyframes slideDown {
+            from {
+                opacity: 0;
+                transform: translateY(-10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .alert-success {
+            background-color: #d1fae5;
+            color: #065f46;
+            border: 1px solid #6ee7b7;
+        }
+
+        .alert-error {
+            background-color: #fee2e2;
+            color: #991b1b;
+            border: 1px solid #fca5a5;
+        }
+
+        .back-link {
+            text-align: center;
+            margin-top: 20px;
+        }
+
+        .back-link a {
+            color: #3857e2ff;
+            text-decoration: none;
+            font-size: 14px;
+            font-weight: 600;
+        }
+
+        .back-link a:hover {
+            text-decoration: underline;
+        }
+
+        @media (max-width: 640px) {
+            .container {
+                padding: 30px 20px;
+            }
+
+            h1 {
+                font-size: 24px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="logo">📧</div>
+            <h1>Contactez-nous</h1>
+            <p class="subtitle">Nous sommes là pour vous aider !</p>
+        </div>
+
+        <div id="alert" class="alert"></div>
+
+        ${
+          userName
+            ? `
+        <div class="user-info">
+            <p><strong>Connecté en tant que:</strong> ${userName}</p>
+            <p><strong>Email:</strong> ${userEmail}</p>
+            ${userCompany ? `<p><strong>Entreprise:</strong> ${userCompany}</p>` : ''}
+        </div>
+        `
+            : ''
+        }
+
+        <form id="contactForm">
+            ${userId ? `<input type="hidden" name="userId" value="${userId}">` : ''}
+            ${userCompany ? `<input type="hidden" name="company" value="${userCompany}">` : ''}
+
+            <div class="form-group">
+                <label for="name">Nom complet *</label>
+                <input 
+                    type="text" 
+                    id="name" 
+                    name="name" 
+                    required 
+                    placeholder="Jean Dupont"
+                    value="${userName}"
+                    minlength="2"
+                    maxlength="100"
+                >
+            </div>
+
+            <div class="form-group">
+                <label for="email">Email *</label>
+                <input 
+                    type="email" 
+                    id="email" 
+                    name="email" 
+                    required 
+                    placeholder="jean.dupont@exemple.com"
+                    value="${userEmail}"
+                >
+            </div>
+
+            ${
+              !userName
+                ? `
+            <div class="form-group">
+                <label for="company">Entreprise (optionnel)</label>
+                <input 
+                    type="text" 
+                    id="company" 
+                    name="company" 
+                    placeholder="Nom de votre entreprise"
+                    maxlength="100"
+                >
+            </div>
+            `
+                : ''
+            }
+
+            <div class="form-group">
+                <label for="subject">Sujet *</label>
+                <select id="subject" name="subject" required>
+                    <option value="">Sélectionnez un sujet</option>
+                    <option value="Question générale">Question générale</option>
+                    <option value="Problème technique">Problème technique</option>
+                    <option value="Facturation">Facturation</option>
+                    <option value="Demande de fonctionnalité">Demande de fonctionnalité</option>
+                    <option value="Bug ou erreur">Bug ou erreur</option>
+                    <option value="Compte utilisateur">Compte utilisateur</option>
+                    <option value="Autre">Autre</option>
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label for="message">Message *</label>
+                <textarea 
+                    id="message" 
+                    name="message" 
+                    required 
+                    placeholder="Décrivez votre demande en détail..."
+                    minlength="20"
+                    maxlength="2000"
+                ></textarea>
+                <div class="char-count">
+                    <span id="charCount">0</span> / 2000 caractères
+                </div>
+            </div>
+
+            <button type="submit" class="submit-btn" id="submitBtn">
+                Envoyer le message
+            </button>
+        </form>
+
+        <div class="back-link">
+            <a href="/">← Retour à l'accueil</a>
+        </div>
+    </div>
+
+    <script>
+        const form = document.getElementById('contactForm');
+        const messageTextarea = document.getElementById('message');
+        const charCount = document.getElementById('charCount');
+        const submitBtn = document.getElementById('submitBtn');
+        const alert = document.getElementById('alert');
+
+        // Compteur de caractères
+        messageTextarea.addEventListener('input', function() {
+            const count = this.value.length;
+            charCount.textContent = count;
+            
+            if (count > 2000) {
+                charCount.style.color = '#ef4444';
+            } else {
+                charCount.style.color = '#9ca3af';
+            }
+        });
+
+        // Gestion du formulaire
+        form.addEventListener('submit', async function(e) {
+            e.preventDefault();
+
+            // Désactiver le bouton
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Envoi en cours...';
+
+            // Récupérer les données du formulaire
+            const formData = {
+                name: document.getElementById('name').value,
+                email: document.getElementById('email').value,
+                company: document.getElementById('company')?.value || '',
+                subject: document.getElementById('subject').value,
+                message: document.getElementById('message').value,
+                userId: document.querySelector('input[name="userId"]')?.value || ''
+            };
+
+            try {
+                const response = await fetch('/api/contact', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(formData)
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    // Succès
+                    showAlert(data.message, 'success');
+                    form.reset();
+                    charCount.textContent = '0';
+                    
+                    // Rediriger après 2 secondes
+                    setTimeout(() => {
+                        window.location.href = '/';
+                    }, 2000);
+                } else {
+                    // Erreur
+                    showAlert(data.message || 'Une erreur est survenue', 'error');
+                    submitBtn.disabled = false;
+                    submitBtn.textContent = 'Envoyer le message';
+                }
+            } catch (error) {
+                console.error('Erreur:', error);
+                showAlert('Erreur de connexion. Veuillez réessayer.', 'error');
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Envoyer le message';
+            }
+        });
+
+        function showAlert(message, type) {
+            alert.textContent = message;
+            alert.className = \`alert alert-\${type} show\`;
+            
+            setTimeout(() => {
+                alert.classList.remove('show');
+            }, 5000);
+        }
+    </script>
+</body>
+</html>
     `;
   }
 }

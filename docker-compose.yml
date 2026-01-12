@@ -1,4 +1,4 @@
-version: '3'
+version: '5'
 services:
   rds_postgres:
     image: postgres:14-alpine

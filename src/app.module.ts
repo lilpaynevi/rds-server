@@ -19,7 +19,7 @@ import { MailModule } from './mail/mail.module';
     PrismaModule, AuthModule, TelevisionsModule, WebsocketsModule, PlaylistsModule, UploadsModule, StripeModule,
     ConfigModule.forRoot({
       isGlobal: true, // Rend ConfigService disponible partout
-      envFilePath: '.env', // Chemin vers le fichier .env
+       envFilePath: `.env.${process.env.NODE_ENV || 'development'}`,
       cache: true, // Met en cache les variables pour de meilleures performances
     }),
     SchedulesModule,
