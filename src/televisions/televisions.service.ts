@@ -351,6 +351,16 @@ export class TelevisionsService {
         },
       });
 
+      this.websocket.notifyTV(id, 'tv-settings-update', {
+        name: updatedTelevision.name,
+        orientation: updatedTelevision.orientation,
+        transition: updatedTelevision.transition,
+        loop: updatedTelevision.loop,
+        autoPlay: updatedTelevision.autoPlay,
+        volume: updatedTelevision.volume,
+        refreshRate: updatedTelevision.refreshRate,
+      });
+
       return updatedTelevision;
     } catch (error) {
       if (
@@ -378,6 +388,11 @@ export class TelevisionsService {
         status: status as any,
         lastSeen: new Date(),
       },
+    });
+
+    this.websocket.notifyTV(id, 'tv-status-update', {
+      tvId: id,
+      status: updatedTelevision.status,
     });
 
     return updatedTelevision;
@@ -431,7 +446,15 @@ export class TelevisionsService {
               decrement: 1,
             },
           },
-          where: { userId: user.id },
+          where: {
+            userId: user.id,
+            plan: {
+              planType: 'MAIN',
+            },
+            usedScreens: {
+              gt: 0,
+            },
+          },
         });
       });
 
@@ -515,6 +538,12 @@ export class TelevisionsService {
         },
         where: {
           userId: user?.sub,
+          plan: {
+            planType: 'MAIN',
+          },
+          usedScreens: {
+            gt: 0,
+          },
         },
       });
 

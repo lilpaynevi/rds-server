@@ -353,14 +353,10 @@ enum TelevisionStatus {
 }
 
 enum TransitionEffect {
-  NONE
   FADE
-  SLIDE_LEFT
-  SLIDE_RIGHT
-  SLIDE_UP
-  SLIDE_DOWN
-  ZOOM_IN
-  ZOOM_OUT
+  SLIDE
+  ZOOM
+  NONE
 }
 
 enum RepeatMode {

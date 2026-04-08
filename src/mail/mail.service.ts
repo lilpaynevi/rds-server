@@ -269,10 +269,7 @@ export class MailService {
                       <p>Si vous n'êtes pas à l'origine de cette demande, vous pouvez ignorer cet email en toute sécurité. Votre mot de passe actuel reste inchangé.</p>
                   </div>
                   
-                  <p style="margin-top: 30px; font-size: 14px; color: #999;">
-                      Si le bouton ne fonctionne pas, copiez et collez ce lien dans votre navigateur :<br>
-                      <a href="${resetUrl}" class="link-text">${resetUrl}</a>
-                  </p>
+                 
               </div>
               
               <div class="footer">

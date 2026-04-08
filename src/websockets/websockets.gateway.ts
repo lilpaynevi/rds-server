@@ -136,10 +136,10 @@ export class WebsocketsGateway
         return `Vous avez déjà dépassé votre capacité d'écran pour votre abonnement ! Merci d'augmenter votre capacité d'écran`;
       }
 
-      if (existingCode && typeof existingCode.userId === null) {
+      if (existingCode && existingCode.userId !== null) {
         console.log(
-          '🚀 ~ WebsocketsGateway ~ handleTVConnectionWithCode ~  typeof existingCode.userId:',
-          typeof existingCode.userId,
+          '🚀 ~ WebsocketsGateway ~ handleTVConnectionWithCode ~ TV already associated to userId:',
+          existingCode.userId,
         );
         client.emit('connect-tv-code-error', {
           status: false,
@@ -157,10 +157,10 @@ export class WebsocketsGateway
 
         await this.prisma.subscription.updateMany({
           data: {
-            usedScreens: existingUser.Subscription[0].usedScreens + 1,
+            usedScreens: subscription.usedScreens + 1,
           },
           where: {
-            id: existingUser.Subscription[0].id,
+            id: subscription.id,
           },
         });
 
@@ -615,9 +615,8 @@ export class WebsocketsGateway
       //   },
       // });
 
-      const tvWithPlaylists = await this.prisma.playlist.findUnique({
+      const tvWithPlaylists = await this.prisma.playlist.findFirst({
         where: {
-          id: data.tvId,
           televisions: {
             some: {
               televisionId: data.tvId,
@@ -780,6 +779,42 @@ export class WebsocketsGateway
       });
 
       throw error; // ou return { success: false, error: error.message }
+    }
+  }
+
+  // 🔌 Commande ON/OFF à distance
+  @SubscribeMessage('tv-power')
+  async handleTVPower(
+    @MessageBody() data: { tvId: string; action: 'ON' | 'OFF' },
+    @ConnectedSocket() client: Socket,
+  ) {
+    if (!data?.tvId || !data?.action) {
+      return { event: 'error', message: 'tvId et action requis' };
+    }
+
+    try {
+      const status = data.action === 'ON' ? 'ONLINE' : 'OFFLINE';
+
+      await this.prisma.television.update({
+        where: { id: data.tvId },
+        data: { status: status as any, lastSeen: new Date() },
+      });
+
+      // Notifier la TV
+      this.notifyTV(data.tvId, 'tv-power', { action: data.action });
+
+      // Notifier l'app (tous les clients de la room)
+      this.server.to(`tv:${data.tvId}`).emit('tv-status-update', {
+        tvId: data.tvId,
+        status,
+      });
+
+      client.emit('tv-power-success', { tvId: data.tvId, action: data.action });
+      return { success: true };
+    } catch (error) {
+      this.logger.error(`❌ Erreur tv-power: ${error.message}`);
+      client.emit('tv-power-error', { message: error.message });
+      return { success: false };
     }
   }
 }
