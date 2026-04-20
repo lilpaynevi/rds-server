@@ -138,7 +138,11 @@ model Television {
   transition  TransitionEffect @default(FADE)
   refreshRate Int              @default(30) // seconds
 
-  // Timestamps  
+  // Power schedule
+  powerOnTime  String? // "HH:mm" — daily auto power-on, null = disabled
+  powerOffTime String? // "HH:mm" — daily auto power-off, null = disabled
+
+  // Timestamps
   lastSeen       DateTime?
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt

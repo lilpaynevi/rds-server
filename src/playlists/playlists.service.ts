@@ -6,10 +6,14 @@ import { existsSync } from 'fs';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { error } from 'console';
 import { Socket } from 'socket.io';
+import { WebsocketsGateway } from 'src/websockets/websockets.gateway';
 
 @Injectable()
 export class PlaylistsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private websocket: WebsocketsGateway,
+  ) {}
 
   async create(
     createPlaylistDto: any,
@@ -514,6 +518,13 @@ export class PlaylistsService {
           mediaCount: createdMedias.length,
         });
 
+        // Notifier la TV en temps réel si un schedule a été créé
+        if (schedule) {
+          this.websocket.notifyTV(television.id, 'tv-schedules-updated', {
+            message: 'Nouvelle programmation disponible',
+          });
+        }
+
         console.log(`✅ Playlist complète créée pour ${television.name}`);
       }
 
@@ -663,7 +674,9 @@ export class PlaylistsService {
 
           const televisionId =
             parsedData.television ||
-            existingPlaylist.televisions?.[0]?.televisionId;
+            existingPlaylist.televisions?.find((t) => t.televisionId != null)
+              ?.televisionId ||
+            'shared';
 
           const uploadDir = join(
             process.cwd(),
@@ -1304,16 +1317,8 @@ async changeDurationMedia(
           },
         });
       } else {
-        // Créer une nouvelle assignation
-        await this.prisma.playlistTelevision.deleteMany({
-          where: {
-            playlistId: data.playlistId,
-          },
-        });
-
-        console.log(
-          '🚀 ~ Créer une nouvelle assignation: Créer une nouvelle assignation',
-        );
+        // Créer une nouvelle assignation (sans supprimer les autres)
+        console.log('🚀 ~ Créer une nouvelle assignation many-to-many');
         return await this.prisma.playlistTelevision.create({
           data: {
             playlistId: data.playlistId,
@@ -1332,6 +1337,12 @@ async changeDurationMedia(
         `Erreur lors de l'assignation de la playlist à la TV: ${error.message}`,
       );
     }
+  }
+
+  async removePlaylistFromTV(playlistId: string, televisionId: string) {
+    return this.prisma.playlistTelevision.deleteMany({
+      where: { playlistId, televisionId },
+    });
   }
 
   async reorderPlaylistToTV(data: { mediaId: string; order: number }[]) {

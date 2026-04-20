@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Get,
   Param,
   Patch,
   Post,
@@ -13,6 +14,12 @@ import { GetUser } from 'src/decorator/get-user.decorator';
 @Controller('schedules')
 export class SchedulesController {
   constructor(private readonly schedulesService: SchedulesService) {}
+
+  @UseGuards(JwtAuthGuard)
+  @Get('tv/:tvId')
+  async findByTv(@Param('tvId') tvId: string) {
+    return this.schedulesService.findByTv(tvId);
+  }
 
   @UseGuards(JwtAuthGuard)
   @Post()

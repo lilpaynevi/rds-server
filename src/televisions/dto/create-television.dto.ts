@@ -48,6 +48,14 @@ export class CreateTelevisionDto {
   @Min(1)
   refreshRate?: number;
 
+  @IsOptional()
+  @IsString()
+  powerOnTime?: string;
+
+  @IsOptional()
+  @IsString()
+  powerOffTime?: string;
+
   @IsString()
   codeConnection: string;
 

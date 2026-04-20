@@ -163,6 +163,14 @@ export class PlaylistsController {
     return this.playlistsService.assignPlaylistToTV(data);
   }
 
+  @Delete('/:playlistId/unassign-tv/:televisionId')
+  removePlaylistFromTV(
+    @Param('playlistId') playlistId: string,
+    @Param('televisionId') televisionId: string,
+  ) {
+    return this.playlistsService.removePlaylistFromTV(playlistId, televisionId);
+  }
+
   @Patch('/:playlistId/reorder')
   orderPlaylistToTV(@Body() data: { mediaId: string; order: number }[]) {
     return this.playlistsService.reorderPlaylistToTV(data);

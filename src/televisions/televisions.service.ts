@@ -359,6 +359,8 @@ export class TelevisionsService {
         autoPlay: updatedTelevision.autoPlay,
         volume: updatedTelevision.volume,
         refreshRate: updatedTelevision.refreshRate,
+        powerOnTime: updatedTelevision.powerOnTime ?? null,
+        powerOffTime: updatedTelevision.powerOffTime ?? null,
       });
 
       return updatedTelevision;

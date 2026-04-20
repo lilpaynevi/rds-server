@@ -586,6 +586,77 @@ export class WebsocketsGateway
   }
 
   // 🎯 CRUD WebSocket (tes méthodes existantes)
+  @SubscribeMessage('tv-schedules-updated')
+  handleSchedulesUpdated(
+    @MessageBody() data: { tvId: string },
+  ) {
+    if (data?.tvId) {
+      this.notifyTV(data.tvId, 'tv-schedules-updated', {});
+    }
+  }
+
+  @SubscribeMessage('tv-get-scheduled-playlists')
+  async handleGetScheduledPlaylists(
+    @MessageBody() data: { tvId: string },
+    @ConnectedSocket() client: Socket,
+  ) {
+    if (!data?.tvId) {
+      client.emit('tv-scheduled-playlists', { playlists: [] });
+      return;
+    }
+
+    try {
+      const schedules = await this.prisma.schedule.findMany({
+        where: {
+          isActive: true,
+          playlistId: { not: null },
+          OR: [
+            { televisionId: data.tvId },
+            {
+              playlist: {
+                televisions: { some: { televisionId: data.tvId } },
+              },
+            },
+          ],
+        },
+        include: {
+          playlist: {
+            include: {
+              items: {
+                include: { media: true },
+                orderBy: { order: 'asc' },
+              },
+            },
+          },
+        },
+      });
+
+      const playlists = schedules
+        .filter((s) => s.playlist)
+        .map((schedule) => ({
+          id: schedule.playlist.id,
+          title: schedule.playlist.name,
+          isActive: schedule.isActive,
+          startDate: schedule.startDate,
+          endDate: schedule.endDate,
+          startTime: schedule.startTime,
+          endTime: schedule.endTime,
+          daysOfWeek: schedule.daysOfWeek,
+          priority: schedule.priority,
+          items: schedule.playlist.items.map((item) => ({
+            uri: item.media.s3Url,
+            duration: item.duration ?? item.media.duration,
+            id: item.id,
+          })),
+        }));
+
+      client.emit('tv-scheduled-playlists', { playlists });
+    } catch (error) {
+      this.logger.error(`❌ Erreur tv-get-scheduled-playlists: ${error.message}`);
+      client.emit('tv-scheduled-playlists', { playlists: [] });
+    }
+  }
+
   @SubscribeMessage('tv-find-playlist')
   async handleFindPlaylist(
     @MessageBody() data: { tvId: string },
@@ -597,55 +668,93 @@ export class WebsocketsGateway
     }
 
     try {
-      // Récupération des playlists actives pour la TV
-      // const tvWithPlaylistsA = await this.prisma.television.findUnique({
-      //   where: { id: data.tvId },
-      //   include: {
-      //     playlists: {
-      //       include: {
-      //         playlist: {
-      //           include: {
-      //             items: {
-      //               include: { media: true },
-      //             },
-      //           },
-      //         },
-      //       },
-      //     },
-      //   },
-      // });
-
-      const tvWithPlaylists = await this.prisma.playlist.findFirst({
+      // Récupère TOUTES les playlists liées à cette TV :
+      // - celles immédiatement actives (isActive: true)
+      // - celles ayant un schedule actif pour cette TV (isActive: false mais programmées)
+      const playlists = await this.prisma.playlist.findMany({
         where: {
-          televisions: {
-            some: {
-              televisionId: data.tvId,
+          televisions: { some: { televisionId: data.tvId } },
+          OR: [
+            { isActive: true },
+            {
+              schedules: {
+                some: {
+                  isActive: true,
+                  OR: [
+                    { televisionId: data.tvId },
+                    { televisionId: null },
+                  ],
+                },
+              },
             },
-          },
-          isActive: true,
+          ],
         },
         include: {
           items: {
-            include: {
-              media: true,
+            include: { media: true },
+            orderBy: { order: 'asc' },
+          },
+          schedules: {
+            where: {
+              isActive: true,
+              OR: [
+                { televisionId: data.tvId },
+                { televisionId: null },
+              ],
             },
           },
         },
+        orderBy: { createdAt: 'desc' },
       });
 
-      if (!tvWithPlaylists) {
-        client.emit('tv-find-playlist-error', {
-          // message: 'TV non trouvée',
-          items: [],
-        });
+      const now = new Date();
+      const currentDay = now.getDay();
+      const currentTimeMinutes = now.getHours() * 60 + now.getMinutes();
+
+      const isScheduleActive = (schedule: any): boolean => {
+        if (schedule.startDate) {
+          const start = new Date(schedule.startDate);
+          start.setHours(0, 0, 0, 0);
+          if (start > now) return false;
+        }
+        if (schedule.endDate) {
+          const end = new Date(schedule.endDate);
+          end.setHours(23, 59, 59, 999);
+          if (end < now) return false;
+        }
+        if (schedule.daysOfWeek?.length > 0) {
+          if (!schedule.daysOfWeek.includes(currentDay)) return false;
+        }
+        if (schedule.startTime) {
+          const [h, m] = schedule.startTime.split(':').map(Number);
+          if (currentTimeMinutes < h * 60 + m) return false;
+        }
+        if (schedule.endTime) {
+          const [h, m] = schedule.endTime.split(':').map(Number);
+          if (currentTimeMinutes >= h * 60 + m) return false;
+        }
+        return true;
+      };
+
+      const activePlaylist = playlists.find((playlist) => {
+        const hasSchedule = playlist.schedules?.length > 0;
+
+        // Playlist sans schedule → active seulement si isActive: true
+        if (!hasSchedule) return playlist.isActive;
+
+        // Playlist avec schedule → active seulement si la plage horaire est respectée
+        return playlist.schedules.some(isScheduleActive);
+      });
+
+      if (!activePlaylist) {
+        client.emit('tv-find-playlist-error', { items: [] });
         return false;
       }
 
-      // Extraction des items des playlists
-      const playlistItems = tvWithPlaylists.items.map((item) => ({
+      const playlistItems = activePlaylist.items.map((item) => ({
         uri: item.media.s3Url,
-        duration: item.media.duration,
-        id: item.id, // Optionnel: utile pour le frontend
+        duration: item.duration ?? item.media.duration,
+        id: item.id,
       }));
 
       client.emit('tv-find-playlist-success', {
