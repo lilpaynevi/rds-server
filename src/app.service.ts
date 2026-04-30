@@ -689,6 +689,145 @@ export class AppService {
     `;
   }
 
+  accountdeletion(): any {
+    return `
+    <!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Suppression de compte — RDS Connect</title>
+  <meta name="description" content="Procédure de suppression de votre compte et de vos données dans l'application RDS Connect." />
+  <style>
+    :root {
+      --bg: #ffffff;
+      --text: #1a1a1a;
+      --muted: #555;
+      --accent: #2563eb;
+      --border: #e5e7eb;
+      --code-bg: #f3f4f6;
+    }
+    * { box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      max-width: 760px;
+      margin: 0 auto;
+      padding: 2rem 1.25rem 4rem;
+      color: var(--text);
+      background: var(--bg);
+      line-height: 1.65;
+    }
+    h1 { font-size: 1.9rem; margin-bottom: 0.25rem; }
+    h2 { font-size: 1.25rem; margin-top: 2.25rem; padding-bottom: 0.4rem; border-bottom: 1px solid var(--border); }
+    p, li { color: var(--text); }
+    .lead { color: var(--muted); margin-top: 0; }
+    ol, ul { padding-left: 1.4rem; }
+    li { margin: 0.4rem 0; }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    code { background: var(--code-bg); padding: 0.1rem 0.4rem; border-radius: 4px; font-size: 0.9em; }
+    .meta { color: var(--muted); font-size: 0.9rem; margin-top: 3rem; padding-top: 1rem; border-top: 1px solid var(--border); }
+    table { width: 100%; border-collapse: collapse; margin: 1rem 0; }
+    th, td { text-align: left; padding: 0.6rem 0.75rem; border-bottom: 1px solid var(--border); font-size: 0.95rem; }
+    th { background: var(--code-bg); font-weight: 600; }
+  </style>
+</head>
+<body>
+
+  <h1>Suppression de votre compte et de vos données</h1>
+  <p class="lead">Application : <strong>RDS Connect</strong></p>
+
+  <p>
+    Conformément aux exigences de Google Play et au Règlement Général sur la Protection
+    des Données (RGPD), vous pouvez à tout moment demander la suppression de votre
+    compte ainsi que des données associées.
+  </p>
+
+  <h2>Méthode 1 — Depuis l'application (recommandée)</h2>
+  <ol>
+    <li>Ouvrez l'application <strong>RDS Connect</strong>.</li>
+    <li>Connectez-vous avec votre compte.</li>
+    <li>Accédez à <strong>Paramètres</strong> → <strong>Mon compte</strong>.</li>
+    <li>Appuyez sur <strong>Supprimer mon compte</strong>.</li>
+    <li>Confirmez la suppression. L'opération est définitive et immédiate.</li>
+  </ol>
+
+  <h2>Méthode 2 — Par e-mail</h2>
+  <p>
+    Si vous n'avez plus accès à l'application, envoyez un e-mail à
+    <a href="mailto:rdsconnect.contact@gmail.com">rdsconnect.contact@gmail.com</a>
+    depuis l'adresse associée à votre compte, avec pour objet
+    <code>Suppression de compte</code>.
+  </p>
+  <p>
+    Votre demande sera traitée sous <strong>30 jours maximum</strong>. Une confirmation
+    vous sera envoyée par e-mail une fois la suppression effectuée.
+  </p>
+
+  <h2>Données supprimées</h2>
+  <p>Lors de la suppression de votre compte, les données suivantes sont définitivement effacées :</p>
+  <ul>
+    <li>Informations de profil : nom, prénom, e-mail, téléphone, avatar, entreprise, service, ville</li>
+    <li>Identifiants d'authentification (mot de passe, jetons de session)</li>
+    <li>Téléviseurs associés à votre compte et leurs codes de connexion</li>
+    <li>Médias téléversés (images, vidéos, documents) et leurs miniatures</li>
+    <li>Listes de lecture et programmations</li>
+    <li>Journaux d'activité liés à vos appareils</li>
+  </ul>
+
+  <h2>Données conservées</h2>
+  <p>
+    Certaines données peuvent être conservées pour des raisons légales, fiscales ou
+    de sécurité, conformément à la législation applicable :
+  </p>
+  <table>
+    <thead>
+      <tr><th>Type de donnée</th><th>Durée</th><th>Motif</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Factures et historique de paiement</td>
+        <td>10 ans</td>
+        <td>Obligation comptable (Code de commerce, art. L123-22)</td>
+      </tr>
+      <tr>
+        <td>Journaux de connexion anonymisés</td>
+        <td>1 an</td>
+        <td>Sécurité et prévention de la fraude</td>
+      </tr>
+      <tr>
+        <td>Données chez Stripe (paiements)</td>
+        <td>Selon politique Stripe</td>
+        <td>Prestataire de paiement</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>Vos autres droits</h2>
+  <p>
+    Conformément au RGPD, vous disposez également d'un droit d'accès, de rectification,
+    d'opposition et de portabilité de vos données. Pour exercer ces droits, contactez-nous
+    à <a href="mailto:rdsconnect.contact@gmail.com">rdsconnect.contact@gmail.com</a>.
+  </p>
+
+  <h2>Contact</h2>
+  <p>
+    Pour toute question relative à la suppression de votre compte ou au traitement de
+    vos données :
+  </p>
+  <ul>
+    <li>E-mail : <a href="mailto:rdsconnect.contact@gmail.com">rdsconnect.contact@gmail.com</a></li>
+    <li>Responsable du traitement : <strong>RDS CONNECT</strong>, 26 Avenue du 6 juin 1944, 95190 GOUSSAINVILLE, France</li>
+  </ul>
+
+  <p class="meta">Dernière mise à jour : 30 avril 2026.</p>
+
+</body>
+</html>
+
+    `;
+  }
+
   /**
    * Simule l'envoi d'un email de support
    * En production, remplacer par un vrai service d'envoi (Nodemailer, SendGrid, etc.)

@@ -16,6 +16,12 @@ export class AppController {
     return this.appService.displayCGU();
   }
 
+  @Get('account-deletion')
+  @Header('Content-Type', 'text/html')
+  accountdeletion(): string {
+    return this.appService.accountdeletion();
+  }
+
   @Get('contact')
   getContactPage(@Req() req: any) {
     // Si l'utilisateur est connecté, passer ses infos

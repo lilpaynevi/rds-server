@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   Patch,
@@ -14,6 +15,12 @@ import { GetUser } from 'src/decorator/get-user.decorator';
 @Controller('schedules')
 export class SchedulesController {
   constructor(private readonly schedulesService: SchedulesService) {}
+
+  @UseGuards(JwtAuthGuard)
+  @Get()
+  async findAll(@GetUser() user: any) {
+    return this.schedulesService.findAll(user);
+  }
 
   @UseGuards(JwtAuthGuard)
   @Get('tv/:tvId')
@@ -35,5 +42,11 @@ export class SchedulesController {
     @GetUser() user: any,
   ) {
     return this.schedulesService.update(scheduleId, data, user);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Delete(':id')
+  async delete(@Param('id') scheduleId: string, @GetUser() user: any) {
+    return this.schedulesService.delete(scheduleId, user);
   }
 }

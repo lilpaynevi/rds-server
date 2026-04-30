@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { WebsocketsGateway } from 'src/websockets/websockets.gateway';
@@ -10,6 +10,17 @@ export class SchedulesService {
     private readonly configService: ConfigService,
     private readonly websocket: WebsocketsGateway,
   ) {}
+
+  async findAll(user: any) {
+    return this.prisma.schedule.findMany({
+      where: { userId: user.sub },
+      include: {
+        television: { select: { id: true, name: true } },
+        playlist: { select: { id: true, name: true, isActive: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
 
   async findByTv(tvId: string) {
     return this.prisma.schedule.findMany({
@@ -50,5 +61,17 @@ export class SchedulesService {
     }
 
     return updated;
+  }
+
+  async delete(scheduleId: string, user: any) {
+    const schedule = await this.prisma.schedule.findUnique({
+      where: { id: scheduleId, userId: user.sub },
+    });
+    if (!schedule) throw new NotFoundException('Planning introuvable');
+    await this.prisma.schedule.delete({ where: { id: scheduleId } });
+    if (schedule.televisionId) {
+      this.websocket.notifyTV(schedule.televisionId, 'tv-schedules-updated', {});
+    }
+    return { success: true };
   }
 }
