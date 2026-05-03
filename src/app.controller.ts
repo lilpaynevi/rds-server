@@ -16,6 +16,12 @@ export class AppController {
     return this.appService.displayCGU();
   }
 
+  @Get('privacy-policy')
+  @Header('Content-Type', 'text/html')
+  privatePlolicy(): string {
+    return this.appService.privacyRules();
+  }
+
   @Get('account-deletion')
   @Header('Content-Type', 'text/html')
   accountdeletion(): string {

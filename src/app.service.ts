@@ -689,6 +689,361 @@ export class AppService {
     `;
   }
 
+  privacyRules() {
+    return `
+    <!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Politique de confidentialité — RDS Info Mobile</title>
+  <meta name="description" content="Politique de confidentialité de l'application RDS Info Mobile : données collectées, finalités, partage, droits des utilisateurs." />
+  <style>
+    :root {
+      --bg: #ffffff;
+      --text: #1a1a1a;
+      --muted: #555;
+      --accent: #2563eb;
+      --border: #e5e7eb;
+      --code-bg: #f3f4f6;
+    }
+    * { box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      max-width: 820px;
+      margin: 0 auto;
+      padding: 2.5rem 1.25rem 4rem;
+      color: var(--text);
+      background: var(--bg);
+      line-height: 1.7;
+    }
+    h1 { font-size: 2rem; margin-bottom: 0.25rem; }
+    h2 { font-size: 1.35rem; margin-top: 2.5rem; padding-bottom: 0.4rem; border-bottom: 1px solid var(--border); }
+    h3 { font-size: 1.05rem; margin-top: 1.5rem; color: var(--text); }
+    p, li { color: var(--text); }
+    .lead { color: var(--muted); margin-top: 0; font-size: 1.05rem; }
+    ol, ul { padding-left: 1.5rem; }
+    li { margin: 0.4rem 0; }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    code { background: var(--code-bg); padding: 0.1rem 0.4rem; border-radius: 4px; font-size: 0.9em; }
+    .meta { color: var(--muted); font-size: 0.9rem; margin-top: 3rem; padding-top: 1rem; border-top: 1px solid var(--border); }
+    table { width: 100%; border-collapse: collapse; margin: 1rem 0; font-size: 0.95rem; }
+    th, td { text-align: left; padding: 0.65rem 0.75rem; border-bottom: 1px solid var(--border); vertical-align: top; }
+    th { background: var(--code-bg); font-weight: 600; }
+    .toc { background: var(--code-bg); padding: 1rem 1.5rem; border-radius: 8px; margin: 1.5rem 0 2rem; }
+    .toc h3 { margin-top: 0; }
+    .toc ul { margin-bottom: 0; }
+    .highlight { background: #fef3c7; padding: 1rem 1.25rem; border-left: 4px solid #f59e0b; border-radius: 4px; margin: 1rem 0; }
+    .header { display: flex; align-items: center; gap: 1.25rem; margin-bottom: 1.5rem; }
+    .header img { width: 72px; height: 72px; border-radius: 16px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+    .header-text h1 { margin: 0; }
+    .header-text .lead { margin: 0.25rem 0 0; }
+    @media (max-width: 480px) {
+      .header { flex-direction: column; align-items: flex-start; gap: 1rem; }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="header">
+    <img src="https://play-lh.googleusercontent.com/3IwykzV4Aowzt9nIue-0n99Om6ZAixEAuyvwnJ-i1Tpg4qX5oUe2u6CGxu5f7CppoQ90zBww7zrYbzOXrLbE9A=w480-h960-rw" alt="Logo RDS Info Mobile" />
+    <div class="header-text">
+      <h1>Politique de confidentialité</h1>
+      <p class="lead">Application : <strong>RDS Info Mobile</strong></p>
+      <p class="lead">Éditeur : <strong>IONUP</strong> — Dernière mise à jour : 30 avril 2026</p>
+    </div>
+  </div>
+
+  <div class="toc">
+    <h3>Sommaire</h3>
+    <ul>
+      <li><a href="#preambule">1. Préambule</a></li>
+      <li><a href="#responsable">2. Responsable du traitement</a></li>
+      <li><a href="#donnees">3. Données collectées</a></li>
+      <li><a href="#finalites">4. Finalités du traitement</a></li>
+      <li><a href="#base-legale">5. Base légale</a></li>
+      <li><a href="#partage">6. Partage avec des tiers et sous-traitants</a></li>
+      <li><a href="#duree">7. Durée de conservation</a></li>
+      <li><a href="#securite">8. Sécurité des données</a></li>
+      <li><a href="#droits">9. Vos droits</a></li>
+      <li><a href="#suppression">10. Suppression de compte</a></li>
+      <li><a href="#mineurs">11. Mineurs</a></li>
+      <li><a href="#modifications">12. Modifications</a></li>
+      <li><a href="#contact">13. Contact</a></li>
+    </ul>
+  </div>
+
+  <h2 id="preambule">1. Préambule</h2>
+  <p>
+    La présente politique de confidentialité décrit la manière dont l'application
+    <strong>RDS Info Mobile</strong> (ci-après « l'Application ») collecte, utilise,
+    stocke et protège les données personnelles de ses utilisateurs, conformément au
+    Règlement Général sur la Protection des Données (RGPD — Règlement UE 2016/679)
+    et à la Loi Informatique et Libertés.
+  </p>
+  <p>
+    En utilisant l'Application, vous reconnaissez avoir lu et accepté la présente
+    politique de confidentialité.
+  </p>
+
+  <h2 id="responsable">2. Responsable du traitement</h2>
+  <p>
+    Le responsable du traitement des données est :
+  </p>
+  <ul>
+    <li><strong>IONUP</strong></li>
+    <li>Adresse : France</li>
+    <li>E-mail de contact : <a href="mailto:rdsconnect.contact@gmail.com">rdsconnect.contact@gmail.com</a></li>
+  </ul>
+
+  <h2 id="donnees">3. Données collectées</h2>
+  <p>
+    L'Application collecte les catégories de données suivantes :
+  </p>
+
+  <h3>3.1 Informations personnelles</h3>
+  <ul>
+    <li><strong>Nom et prénom</strong> (obligatoire) — pour l'identification du compte</li>
+    <li><strong>Adresse e-mail</strong> (obligatoire) — pour l'authentification et les communications</li>
+    <li><strong>Numéro de téléphone</strong> (facultatif) — pour le contact</li>
+    <li><strong>Photo de profil / avatar</strong> (facultatif)</li>
+    <li><strong>Entreprise, service, ville</strong> (facultatif) — pour l'organisation du compte</li>
+    <li><strong>Mot de passe</strong> (obligatoire, stocké sous forme chiffrée par hachage bcrypt)</li>
+  </ul>
+
+  <h3>3.2 Identifiants techniques</h3>
+  <ul>
+    <li><strong>Identifiant utilisateur unique</strong> (UUID) — généré automatiquement</li>
+    <li><strong>Identifiant d'appareil</strong> (Device ID) — utilisé pour l'appairage des téléviseurs Android TV avec votre compte</li>
+    <li><strong>Code de connexion</strong> — généré pour associer un téléviseur à votre compte</li>
+    <li><strong>Jetons d'authentification</strong> (JWT) — pour maintenir votre session</li>
+  </ul>
+
+  <h3>3.3 Contenus téléversés</h3>
+  <ul>
+    <li><strong>Photos et images</strong> que vous téléversez dans l'application</li>
+    <li><strong>Vidéos</strong> que vous téléversez</li>
+    <li><strong>Fichiers audio</strong> que vous téléversez</li>
+    <li><strong>Documents</strong> que vous téléversez (PDF, etc.)</li>
+    <li><strong>Listes de lecture et programmations</strong> que vous créez</li>
+  </ul>
+
+  <h3>3.4 Informations financières</h3>
+  <ul>
+    <li><strong>Historique des abonnements et achats</strong> (plan souscrit, dates, montants)</li>
+    <li><strong>Factures</strong></li>
+  </ul>
+  <p>
+    <strong>Important :</strong> les informations de carte bancaire ne sont
+    <em>jamais</em> stockées sur nos serveurs. Elles sont collectées et traitées
+    directement par notre prestataire de paiement <strong>Stripe</strong>,
+    certifié PCI-DSS niveau 1.
+  </p>
+
+  <h3>3.5 Activité dans l'application</h3>
+  <ul>
+    <li><strong>Historique de connexion</strong> (date de dernière connexion)</li>
+    <li><strong>Interactions avec les téléviseurs</strong> (connexion, déconnexion, lecture de média)</li>
+    <li><strong>Adresse IP</strong> — collectée temporairement pour la sécurité et la prévention des fraudes</li>
+    <li><strong>User-Agent</strong> — pour le diagnostic technique</li>
+  </ul>
+
+  <h2 id="finalites">4. Finalités du traitement</h2>
+  <p>Vos données sont collectées pour les finalités suivantes :</p>
+  <table>
+    <thead>
+      <tr><th>Finalité</th><th>Données concernées</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Création et gestion de votre compte</td>
+        <td>Nom, e-mail, mot de passe, ID utilisateur</td>
+      </tr>
+      <tr>
+        <td>Authentification et sécurisation de l'accès</td>
+        <td>E-mail, mot de passe, jetons, IP</td>
+      </tr>
+      <tr>
+        <td>Fonctionnement de l'Application (appairage TV, diffusion de contenu)</td>
+        <td>Device ID, code de connexion, médias, listes de lecture</td>
+      </tr>
+      <tr>
+        <td>Communications de service (réinitialisation de mot de passe, notifications importantes)</td>
+        <td>E-mail</td>
+      </tr>
+      <tr>
+        <td>Gestion des abonnements et facturation</td>
+        <td>Historique des achats, factures</td>
+      </tr>
+      <tr>
+        <td>Analyse statistique d'usage et amélioration de l'Application</td>
+        <td>Interactions dans l'app, diagnostics</td>
+      </tr>
+      <tr>
+        <td>Prévention de la fraude et sécurité</td>
+        <td>Adresse IP, journaux de connexion</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <p>
+    <strong>Nous n'utilisons aucune donnée à des fins publicitaires</strong> et nous
+    ne revendons jamais vos données à des tiers.
+  </p>
+
+  <h2 id="base-legale">5. Base légale du traitement</h2>
+  <p>Le traitement de vos données repose sur les bases légales suivantes (RGPD art. 6) :</p>
+  <ul>
+    <li><strong>Exécution du contrat</strong> : pour la fourniture du service auquel vous avez souscrit</li>
+    <li><strong>Consentement</strong> : pour les données facultatives (téléphone, avatar, médias téléversés)</li>
+    <li><strong>Obligation légale</strong> : pour la conservation des factures (10 ans)</li>
+    <li><strong>Intérêt légitime</strong> : pour la sécurité, la prévention des fraudes et l'amélioration du service</li>
+  </ul>
+
+  <h2 id="partage">6. Partage avec des tiers et sous-traitants</h2>
+  <p>
+    Nous ne vendons, ne louons et ne partageons jamais vos données personnelles à des
+    fins commerciales. Les seules entités ayant accès à vos données sont nos
+    sous-traitants techniques, dans le cadre strict de la fourniture du service :
+  </p>
+  <table>
+    <thead>
+      <tr><th>Sous-traitant</th><th>Rôle</th><th>Localisation</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>Stripe</strong></td>
+        <td>Traitement des paiements et facturation</td>
+        <td>Irlande / États-Unis (clauses contractuelles types)</td>
+      </tr>
+      <tr>
+        <td><strong>Amazon Web Services (AWS S3)</strong></td>
+        <td>Stockage sécurisé des fichiers téléversés</td>
+        <td>Union européenne</td>
+      </tr>
+      <tr>
+        <td><strong>Hébergeur du serveur applicatif</strong></td>
+        <td>Hébergement de la base de données et de l'API</td>
+        <td>Union européenne</td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    Chaque sous-traitant est lié par un contrat conforme à l'article 28 du RGPD et
+    présente des garanties suffisantes en matière de sécurité des données.
+  </p>
+
+  <h2 id="duree">7. Durée de conservation</h2>
+  <table>
+    <thead>
+      <tr><th>Donnée</th><th>Durée de conservation</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Données de compte (nom, e-mail, profil)</td>
+        <td>Tant que le compte est actif</td>
+      </tr>
+      <tr>
+        <td>Médias téléversés</td>
+        <td>Tant que le compte est actif (suppression possible à tout moment)</td>
+      </tr>
+      <tr>
+        <td>Journaux de connexion (IP, User-Agent)</td>
+        <td>12 mois</td>
+      </tr>
+      <tr>
+        <td>Factures et données comptables</td>
+        <td>10 ans (obligation légale, Code de commerce art. L123-22)</td>
+      </tr>
+      <tr>
+        <td>Données après suppression du compte</td>
+        <td>Suppression immédiate (sauf factures légalement conservées)</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2 id="securite">8. Sécurité des données</h2>
+  <p>
+    Nous mettons en œuvre des mesures techniques et organisationnelles appropriées
+    pour protéger vos données :
+  </p>
+  <ul>
+    <li><strong>Chiffrement en transit</strong> : toutes les communications entre l'Application et nos serveurs sont chiffrées via HTTPS / TLS 1.2+</li>
+    <li><strong>Chiffrement des mots de passe</strong> : stockés sous forme de hash bcrypt, jamais en clair</li>
+    <li><strong>Authentification forte</strong> : jetons JWT à durée limitée</li>
+    <li><strong>Contrôle d'accès</strong> : accès aux données restreint aux personnes autorisées</li>
+    <li><strong>Sauvegardes régulières</strong> de la base de données</li>
+    <li><strong>Surveillance</strong> et journalisation des accès</li>
+  </ul>
+
+  <h2 id="droits">9. Vos droits</h2>
+  <p>Conformément au RGPD, vous disposez des droits suivants :</p>
+  <ul>
+    <li><strong>Droit d'accès</strong> : obtenir la copie des données vous concernant</li>
+    <li><strong>Droit de rectification</strong> : corriger des données inexactes</li>
+    <li><strong>Droit à l'effacement</strong> (« droit à l'oubli ») : demander la suppression de vos données</li>
+    <li><strong>Droit à la limitation</strong> du traitement</li>
+    <li><strong>Droit d'opposition</strong> au traitement</li>
+    <li><strong>Droit à la portabilité</strong> de vos données dans un format structuré</li>
+    <li><strong>Droit de retirer votre consentement</strong> à tout moment</li>
+    <li><strong>Droit d'introduire une réclamation</strong> auprès de la CNIL (<a href="https://www.cnil.fr" target="_blank" rel="noopener">www.cnil.fr</a>)</li>
+  </ul>
+  <p>
+    Pour exercer ces droits, contactez-nous à
+    <a href="mailto:rdsconnect.contact@gmail.com">rdsconnect.contact@gmail.com</a>.
+    Nous répondons sous 30 jours maximum.
+  </p>
+
+  <h2 id="suppression">10. Suppression de compte</h2>
+  <p>
+    Vous pouvez à tout moment supprimer votre compte et l'ensemble de vos données
+    associées :
+  </p>
+  <ul>
+    <li><strong>Depuis l'application</strong> : Paramètres → Mon compte → Supprimer mon compte</li>
+    <li><strong>Par e-mail</strong> : <a href="mailto:rdsconnect.contact@gmail.com">rdsconnect.contact@gmail.com</a></li>
+  </ul>
+  <p>
+    La procédure complète est détaillée sur notre
+    <a href="/account-deletion">page dédiée à la suppression de compte</a>.
+  </p>
+
+  <h2 id="mineurs">11. Mineurs</h2>
+  <p>
+    L'Application n'est pas destinée aux personnes âgées de moins de 16 ans. Nous
+    ne collectons pas sciemment de données concernant des mineurs. Si vous êtes
+    parent ou tuteur et que vous constatez qu'un mineur nous a transmis ses données,
+    contactez-nous pour que nous procédions à leur suppression immédiate.
+  </p>
+
+  <h2 id="modifications">12. Modifications de la politique</h2>
+  <p>
+    Nous nous réservons le droit de modifier la présente politique de confidentialité
+    à tout moment. La date de dernière mise à jour est indiquée en haut du document.
+    En cas de modification substantielle, nous vous en informerons par e-mail ou via
+    une notification dans l'Application.
+  </p>
+
+  <h2 id="contact">13. Contact</h2>
+  <p>
+    Pour toute question relative à la présente politique ou au traitement de vos
+    données personnelles :
+  </p>
+  <ul>
+    <li><strong>E-mail</strong> : <a href="mailto:rdsconnect.contact@gmail.com">rdsconnect.contact@gmail.com</a></li>
+    <li><strong>Responsable du traitement</strong> : IONUP, France</li>
+  </ul>
+
+  <p class="meta">
+    Politique de confidentialité — Version 1.0 — Dernière mise à jour : 30 avril 2026.<br>
+    Application : RDS Info Mobile — Éditeur : IONUP.
+  </p>
+
+</body>
+</html>`;
+  }
+
   accountdeletion(): any {
     return `
     <!DOCTYPE html>
