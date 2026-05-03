@@ -751,7 +751,7 @@ export class AppService {
     <div class="header-text">
       <h1>Politique de confidentialité</h1>
       <p class="lead">Application : <strong>RDS Info Mobile</strong></p>
-      <p class="lead">Éditeur : <strong>IONUP</strong> — Dernière mise à jour : 30 avril 2026</p>
+      <p class="lead">Éditeur : <strong>RDSCONNECT</strong> — Dernière mise à jour : 30 avril 2026</p>
     </div>
   </div>
 
@@ -792,7 +792,7 @@ export class AppService {
     Le responsable du traitement des données est :
   </p>
   <ul>
-    <li><strong>IONUP</strong></li>
+    <li><strong>RDSCONNECT</strong></li>
     <li>Adresse : France</li>
     <li>E-mail de contact : <a href="mailto:rdsconnect.contact@gmail.com">rdsconnect.contact@gmail.com</a></li>
   </ul>
@@ -1032,12 +1032,12 @@ export class AppService {
   </p>
   <ul>
     <li><strong>E-mail</strong> : <a href="mailto:rdsconnect.contact@gmail.com">rdsconnect.contact@gmail.com</a></li>
-    <li><strong>Responsable du traitement</strong> : IONUP, France</li>
+    <li><strong>Responsable du traitement</strong> : RDSCONNECT, France</li>
   </ul>
 
   <p class="meta">
     Politique de confidentialité — Version 1.0 — Dernière mise à jour : 30 avril 2026.<br>
-    Application : RDS Info Mobile — Éditeur : IONUP.
+    Application : RDS Info Mobile — Éditeur : RDSCONNECT.
   </p>
 
 </body>
