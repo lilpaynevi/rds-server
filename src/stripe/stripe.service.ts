@@ -893,7 +893,7 @@ export class StripeService {
     const ppp = await this.prisma.subscriptionPlan.findMany();
     return ppp;
   }
-  async createCheckoutSession(data: any) {
+  /*async createCheckoutSession(data: any) {
     try {
       const line_items = [
         {
@@ -943,6 +943,55 @@ export class StripeService {
         //   },
         // ],
         // success_url: process.env.STRIPE_SUCCESS_URL + "?session_id={CHECKOUT_SESSION_ID}",
+        success_url: process.env.STRIPE_SUCCESS_URL,
+        cancel_url: process.env.STRIPE_CANCEL_URL,
+      });
+
+      return { id: session.id, url: session.url };
+    } catch (error) {
+      console.error('Error creating checkout session:', error);
+      return { status: 404, error };
+    }
+  }*/
+
+  async createCheckoutSession(data: any) {
+    const PRICE_ID_MAPPING: Record<string, string> = {
+      price_1S7OvoAQxGgWdn2vEKo3nksD: 'price_1Tb5PqANLgUUwLkDfZLeNtBx', // ⚠️ remplacer par le price_... live du produit prod_T3VxhrYWMoBxlt
+      price_1S7OuqAQxGgWdn2vTmQFwkQs: 'price_1Tb5PtANLgUUwLkDyUqm6kQ6',
+      price_1S7dNCAQxGgWdn2vUVFHeO6S: 'price_1Tb5PlANLgUUwLkDjqsWfftU',
+    };
+
+    try {
+      const resolvedPriceId = PRICE_ID_MAPPING[data.priceId] ?? data.priceId;
+
+      const line_items = [
+        {
+          price: resolvedPriceId,
+          quantity: data.data.quantity ? data.data.quantity : 1,
+        },
+      ];
+      console.log(
+        '🚀 ~ StripeService ~ createCheckoutSession ~ line_items:',
+        line_items,
+      );
+
+      console.log(
+        process.env.STRIPE_SUCCESS_URL,
+        process.env.STRIPE_CANCEL_URL,
+        data.data.email,
+      );
+
+      const session = await this.stripe.checkout.sessions.create({
+        payment_method_types: ['card', 'paypal'],
+        line_items,
+        mode: 'subscription',
+        metadata: {
+          firstName: data.data.firstName,
+          lastName: data.data.lastName,
+          company: data.data.company,
+          email: data.data.email,
+        },
+        customer_email: data.data.email,
         success_url: process.env.STRIPE_SUCCESS_URL,
         cancel_url: process.env.STRIPE_CANCEL_URL,
       });

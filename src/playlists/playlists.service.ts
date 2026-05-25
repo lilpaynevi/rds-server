@@ -1,5 +1,9 @@
 // playlist.service.ts
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { writeFile, mkdir, unlink } from 'fs/promises';
 import { join } from 'path';
 import { existsSync } from 'fs';
@@ -408,7 +412,7 @@ export class PlaylistsService {
               }
             };
 
-            console.log("fefrfrfrfrfrfr: " , item)
+            console.log('fefrfrfrfrfrfr: ', item);
             const media = await tx.media.create({
               data: {
                 title: item.name.split('.')[0],
@@ -560,6 +564,7 @@ export class PlaylistsService {
     user: any,
     files?: Express.Multer.File[],
   ) {
+    console.log('🚀 ~ PlaylistsService ~ update ~ user:', user);
     console.log('🚀 ~ PlaylistsService ~ update ~ files:', files);
     console.log(
       '🚀 ~ PlaylistsService ~ update ~ updatePlaylistDto:',
@@ -572,7 +577,6 @@ export class PlaylistsService {
       const existingPlaylist = await tx.playlist.findFirst({
         where: {
           id: playlistId,
-          userId: user.sub,
         },
         include: {
           items: {
@@ -1109,7 +1113,7 @@ export class PlaylistsService {
                 id: true,
                 filename: true,
                 s3Url: true,
-                duration: true
+                duration: true,
               },
             },
           },
@@ -1214,73 +1218,72 @@ export class PlaylistsService {
         },
       });
 
-
       return updatedPlaylist;
     });
   }
 
   // playlists.service.ts
 
-async changeDurationMedia(
-  playlistId: string,
-  mediaId: string,
-  data: { duration: number },
-) {
-  try {
-    // Validation de la durée
-    if (!data.duration || data.duration < 1000 || data.duration > 600000) {
-      throw new BadRequestException(
-        'La durée doit être entre 1 seconde (1000ms) et 10 minutes (600000ms)'
-      );
+  async changeDurationMedia(
+    playlistId: string,
+    mediaId: string,
+    data: { duration: number },
+  ) {
+    try {
+      // Validation de la durée
+      if (!data.duration || data.duration < 1000 || data.duration > 600000) {
+        throw new BadRequestException(
+          'La durée doit être entre 1 seconde (1000ms) et 10 minutes (600000ms)',
+        );
+      }
+
+      // Vérifier que la playlist existe
+      const playlist = await this.prisma.playlist.findUnique({
+        where: { id: playlistId },
+      });
+
+      if (!playlist) {
+        throw new NotFoundException('Playlist introuvable');
+      }
+
+      // Vérifier que le média existe dans la playlist
+      const playlistMedia = await this.prisma.playlistItem.findFirst({
+        where: {
+          playlistId: playlistId,
+          mediaId: mediaId,
+        },
+      });
+
+      if (!playlistMedia) {
+        throw new NotFoundException('Média introuvable dans cette playlist');
+      }
+
+      // Mettre à jour la durée
+      const updatedPlaylistMedia = await this.prisma.media.update({
+        where: {
+          id: mediaId,
+        },
+        data: {
+          duration: data.duration,
+        },
+      });
+
+      // Mettre à jour le timestamp de la playlist
+      await this.prisma.playlist.update({
+        where: { id: playlistId },
+        data: { updatedAt: new Date() },
+      });
+
+      return {
+        success: true,
+        message: 'Durée mise à jour avec succès',
+        data: updatedPlaylistMedia,
+      };
+    } catch (error) {
+      console.error('Erreur changeDurationMedia:', error);
+      throw error;
     }
-
-    // Vérifier que la playlist existe
-    const playlist = await this.prisma.playlist.findUnique({
-      where: { id: playlistId },
-    });
-
-    if (!playlist) {
-      throw new NotFoundException('Playlist introuvable');
-    }
-
-    // Vérifier que le média existe dans la playlist
-    const playlistMedia = await this.prisma.playlistItem.findFirst({
-      where: {
-        playlistId: playlistId,
-        mediaId: mediaId,
-      },
-    });
-
-    if (!playlistMedia) {
-      throw new NotFoundException('Média introuvable dans cette playlist');
-    }
-
-    // Mettre à jour la durée
-    const updatedPlaylistMedia = await this.prisma.media.update({
-      where: {
-        id: mediaId,
-      },
-      data: {
-        duration: data.duration,
-      },
-    });
-
-    // Mettre à jour le timestamp de la playlist
-    await this.prisma.playlist.update({
-      where: { id: playlistId },
-      data: { updatedAt: new Date() },
-    });
-
-    return {
-      success: true,
-      message: 'Durée mise à jour avec succès',
-      data: updatedPlaylistMedia,
-    };
-  } catch (error) {
-    console.error('Erreur changeDurationMedia:', error);
-    throw error;
   }
-}
 
   async assignPlaylistToTV(data: { televisionId: string; playlistId: string }) {
     try {
