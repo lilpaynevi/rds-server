@@ -264,6 +264,14 @@ export class PlaylistsService {
           televisionId: parsedData.television,
         },
       };
+    }).then(async (result) => {
+      if (parsedData.isActive === true) {
+        await this.websocket.changePlaylistForTV(
+          parsedData.television,
+          result.playlist.id,
+        );
+      }
+      return result;
     });
   }
 

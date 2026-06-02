@@ -340,6 +340,42 @@ export class WebsocketsGateway
     }
   }
 
+  // 🎬 Déclenche la lecture d'une playlist sur une TV (appel server-side)
+  async changePlaylistForTV(tvId: string, playlistId: string): Promise<void> {
+    try {
+      const playlist = await this.prisma.playlist.findUnique({
+        where: { id: playlistId },
+        include: {
+          items: {
+            include: { media: true },
+            orderBy: { order: 'asc' },
+          },
+        },
+      });
+
+      if (!playlist) {
+        this.logger.warn(`⚠️ changePlaylistForTV: playlist ${playlistId} introuvable`);
+        return;
+      }
+
+      const playlistItems = playlist.items.map((item) => ({
+        uri: item.media.s3Url,
+        duration: item.media.duration,
+        mediaId: item.mediaId,
+        order: item.order,
+      }));
+
+      this.notifyTV(tvId, 'tv-change-playlist-success', {
+        message: `tv-change-playlist-success tv:${tvId}`,
+        playlistId: playlist.id,
+        playlistName: playlist.name,
+        items: playlistItems,
+      });
+    } catch (error) {
+      this.logger.error(`❌ changePlaylistForTV: ${error.message}`);
+    }
+  }
+
   // 🔄 Méthode helper pour notifier une TV spécifique
   notifyTV(deviceId: string, event: string, data: any): boolean {
     try {

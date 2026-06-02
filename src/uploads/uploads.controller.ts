@@ -4,66 +4,81 @@ import {
   HttpException,
   HttpStatus,
   Param,
+  Req,
   Res,
 } from '@nestjs/common';
 import { UploadsService } from './uploads.service';
 import { join } from 'path';
-import { existsSync, readFileSync } from 'fs';
-import { Response } from 'express';
+import { existsSync, statSync, createReadStream } from 'fs';
+import { Request, Response } from 'express';
+
+const VIDEO_EXTENSIONS = new Set(['mp4', 'mov', 'webm', 'avi', 'mkv', 'm4v']);
 
 @Controller('uploads')
 export class UploadsController {
   constructor(private readonly uploadsService: UploadsService) {}
 
   @Get('media/*path')
-  serveMedia(@Param('path') params: string, @Res() res: Response) {
+  serveMedia(@Param('path') params: string, @Req() req: Request, @Res() res: Response) {
     try {
-      let filePath: string;
-
-      if (Array.isArray(params)) {
-        filePath = params.join('/'); // Joindre les segments avec '/'
-      } else {
-        filePath = params;
-      }
-
-      console.log('🚀 ~ UploadsController ~ serveMedia ~ filePath:', filePath);
+      const filePath = Array.isArray(params) ? params.join('/') : params;
       const fullPath = join(process.cwd(), 'uploads', 'media', filePath);
 
-      console.log('📁 Lecture fichier:', fullPath);
-
-      // Vérifier si le fichier existe
       if (!existsSync(fullPath)) {
         throw new HttpException('Fichier non trouvé', HttpStatus.NOT_FOUND);
       }
 
-      // Lire le fichier
-      const fileBuffer = readFileSync(fullPath);
-
-      // Déterminer le type de contenu et l'extension
       const extension = filePath.split('.').pop().toLowerCase();
       const contentType = this.getContentType(extension);
+      const { size: fileSize } = statSync(fullPath);
 
-      // Configuration des en-têtes selon le type de fichier
-      const headers: Record<string, string> = {
-        'Content-Type': contentType,
-        'Content-Length': fileBuffer.length.toString(),
-        'Cache-Control': 'public, max-age=3600',
-      };
+      // Support HTTP Range requests (requis par iOS AVPlayer pour les vidéos)
+      if (VIDEO_EXTENSIONS.has(extension)) {
+        const rangeHeader = req.headers['range'];
 
-      // Pour les PDFs, ajouter des en-têtes spécifiques pour l'affichage inline
-      if (extension === 'pdf') {
-        headers['Content-Disposition'] = 'inline'; // PAS 'attachment'
-        headers['Accept-Ranges'] = 'bytes';
-        headers['Access-Control-Allow-Origin'] = '*';
-        headers['Access-Control-Allow-Methods'] = 'GET';
-        headers['Access-Control-Allow-Headers'] = 'Range';
-        headers['Cross-Origin-Embedder-Policy'] = 'credentialless';
-        headers['Cross-Origin-Resource-Policy'] = 'cross-origin';
+        if (rangeHeader) {
+          const [startStr, endStr] = rangeHeader.replace(/bytes=/, '').split('-');
+          const start = parseInt(startStr, 10);
+          const end = endStr ? parseInt(endStr, 10) : fileSize - 1;
+          const chunkSize = end - start + 1;
+
+          res.status(206).set({
+            'Content-Range': `bytes ${start}-${end}/${fileSize}`,
+            'Accept-Ranges': 'bytes',
+            'Content-Length': chunkSize.toString(),
+            'Content-Type': contentType,
+            'Cache-Control': 'public, max-age=3600',
+          });
+
+          createReadStream(fullPath, { start, end }).pipe(res);
+        } else {
+          res.set({
+            'Content-Type': contentType,
+            'Content-Length': fileSize.toString(),
+            'Accept-Ranges': 'bytes',
+            'Cache-Control': 'public, max-age=3600',
+          });
+          createReadStream(fullPath).pipe(res);
+        }
+        return;
       }
 
-      // Envoyer le fichier
-      res.set(headers);
-      res.send(fileBuffer);
+      // Fichiers non-vidéo (images, PDF…)
+      res.set({
+        'Content-Type': contentType,
+        'Content-Length': fileSize.toString(),
+        'Cache-Control': 'public, max-age=3600',
+        ...(extension === 'pdf' && {
+          'Content-Disposition': 'inline',
+          'Accept-Ranges': 'bytes',
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Methods': 'GET',
+          'Access-Control-Allow-Headers': 'Range',
+          'Cross-Origin-Embedder-Policy': 'credentialless',
+          'Cross-Origin-Resource-Policy': 'cross-origin',
+        }),
+      });
+      createReadStream(fullPath).pipe(res);
     } catch (error) {
       console.error('❌ Erreur:', error);
       res.status(500).send('Erreur serveur');
