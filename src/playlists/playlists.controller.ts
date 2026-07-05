@@ -134,7 +134,7 @@ export class PlaylistsController {
   changeActivePlaylist(
     @Param('televisionId') televisionId: string,
     @Param('playlistId') playlistId: string,
-    @Body() data,
+    @Body() data: { isActive: boolean; position?: number },
   ) {
     return this.playlistsService.changeActivePlaylist(
       playlistId,

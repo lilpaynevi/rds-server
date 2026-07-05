@@ -479,6 +479,9 @@ export class TelevisionsService {
           },
         },
       },
+      orderBy: {
+        name: 'asc',
+      },
     });
   }
 
@@ -574,7 +577,7 @@ export class TelevisionsService {
           tv: dissociatedTV,
           userScreen: changeUserBaseSecreen.count,
           disconnectAllPlaylist,
-          dissociatedSchedules
+          dissociatedSchedules,
         },
       };
     } else {

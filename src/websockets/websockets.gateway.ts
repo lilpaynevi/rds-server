@@ -693,6 +693,49 @@ export class WebsocketsGateway
     }
   }
 
+  @SubscribeMessage('tv-get-playlist-queue')
+  async handleGetPlaylistQueue(
+    @MessageBody() data: { tvId: string },
+    @ConnectedSocket() client: Socket,
+  ) {
+    if (!data?.tvId) {
+      client.emit('tv-playlist-queue', { items: [] });
+      return;
+    }
+
+    try {
+      const queueItems = await this.prisma.playlistQueueItem.findMany({
+        where: { televisionId: data.tvId },
+        include: {
+          playlist: {
+            include: {
+              items: {
+                include: { media: true },
+                orderBy: { order: 'asc' },
+              },
+            },
+          },
+        },
+        orderBy: [{ position: 'asc' }, { createdAt: 'asc' }],
+      });
+
+      const items = queueItems.map((queueItem) => ({
+        id: queueItem.playlist.id,
+        title: queueItem.playlist.name,
+        items: queueItem.playlist.items.map((item) => ({
+          uri: item.media.s3Url,
+          duration: item.duration ?? item.media.duration,
+          id: item.id,
+        })),
+      }));
+
+      client.emit('tv-playlist-queue', { items });
+    } catch (error) {
+      this.logger.error(`❌ Erreur tv-get-playlist-queue: ${error.message}`);
+      client.emit('tv-playlist-queue', { items: [] });
+    }
+  }
+
   @SubscribeMessage('tv-find-playlist')
   async handleFindPlaylist(
     @MessageBody() data: { tvId: string },

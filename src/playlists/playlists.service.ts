@@ -1106,6 +1106,10 @@ export class PlaylistsService {
       include: {
         televisions: {
           select: {
+            id: true,
+            isActive: true,
+            priority: true,
+            televisionId: true,
             television: {
               select: {
                 name: true,
@@ -1113,6 +1117,13 @@ export class PlaylistsService {
               },
             },
           },
+        },
+        queueItems: {
+          select: {
+            televisionId: true,
+            position: true,
+          },
+          orderBy: { position: 'asc' },
         },
         items: {
           select: {
@@ -1168,9 +1179,9 @@ export class PlaylistsService {
   async changeActivePlaylist(
     playlistId: string,
     televisionId: string,
-    data: { isActive: boolean },
+    data: { isActive: boolean; position?: number },
   ) {
-    return await this.prisma.$transaction(async (prisma) => {
+    const result = await this.prisma.$transaction(async (prisma) => {
       // 1. Vérifier que la playlist existe et est liée à la télévision
       const playlistTelevision = await prisma.playlistTelevision.findUnique({
         where: {
@@ -1187,22 +1198,7 @@ export class PlaylistsService {
         );
       }
 
-      // 2. Désactiver TOUTES les playlists actives pour cette télévision
-      var ppp = await prisma.playlist.updateMany({
-        where: {
-          isActive: true,
-          televisions: {
-            every: {
-              televisionId,
-            },
-          },
-        },
-        data: {
-          isActive: false,
-        },
-      });
-
-      // 3. Activer la playlist sélectionnée
+      // 2. Activer/désactiver la playlist elle-même
       const updatedPlaylist = await prisma.playlist.update({
         where: { id: playlistId },
         data: {
@@ -1213,7 +1209,7 @@ export class PlaylistsService {
         },
       });
 
-      // 4. Mettre à jour la relation PlaylistTelevision (optionnel)
+      // 3. Mettre à jour la relation PlaylistTelevision
       await prisma.playlistTelevision.update({
         where: {
           playlistId_televisionId: {
@@ -1226,8 +1222,50 @@ export class PlaylistsService {
         },
       });
 
+      // 4. Répercuter sur la file d'attente de la TV — plusieurs playlists
+      // peuvent désormais être actives en même temps, dans un ordre donné.
+      if (data.isActive) {
+        if (data.position !== undefined) {
+          await prisma.playlistQueueItem.upsert({
+            where: { playlistId_televisionId: { playlistId, televisionId } },
+            create: {
+              playlistId,
+              televisionId,
+              userId: updatedPlaylist.userId,
+              position: data.position,
+            },
+            update: { position: data.position },
+          });
+        } else {
+          const existing = await prisma.playlistQueueItem.findUnique({
+            where: { playlistId_televisionId: { playlistId, televisionId } },
+          });
+          if (!existing) {
+            const last = await prisma.playlistQueueItem.findFirst({
+              where: { televisionId },
+              orderBy: { position: 'desc' },
+            });
+            await prisma.playlistQueueItem.create({
+              data: {
+                playlistId,
+                televisionId,
+                userId: updatedPlaylist.userId,
+                position: (last?.position ?? -1) + 1,
+              },
+            });
+          }
+        }
+      } else {
+        await prisma.playlistQueueItem.deleteMany({
+          where: { playlistId, televisionId },
+        });
+      }
+
       return updatedPlaylist;
     });
+
+    this.websocket.notifyTV(televisionId, 'tv-queue-updated', {});
+    return result;
   }
 
   // playlists.service.ts
@@ -1351,9 +1389,18 @@ export class PlaylistsService {
   }
 
   async removePlaylistFromTV(playlistId: string, televisionId: string) {
-    return this.prisma.playlistTelevision.deleteMany({
+    // Retire aussi l'entrée de la file d'attente — sans ça, la TV continuerait
+    // de jouer une playlist qui n'est plus censée lui être assignée.
+    const { count } = await this.prisma.playlistQueueItem.deleteMany({
       where: { playlistId, televisionId },
     });
+    const result = await this.prisma.playlistTelevision.deleteMany({
+      where: { playlistId, televisionId },
+    });
+    if (count > 0) {
+      this.websocket.notifyTV(televisionId, 'tv-queue-updated', {});
+    }
+    return result;
   }
 
   async reorderPlaylistToTV(data: { mediaId: string; order: number }[]) {

@@ -13,9 +13,10 @@ import { ConfigModule } from '@nestjs/config';
 import { SchedulesModule } from './schedules/schedules.module';
 import { MailService } from './mail/mail.service';
 import { MailModule } from './mail/mail.module';
+import { TvQueueModule } from './tv-queue/tv-queue.module';
 
 @Module({
-  imports: [UsersModule, 
+  imports: [UsersModule,
     PrismaModule, AuthModule, TelevisionsModule, WebsocketsModule, PlaylistsModule, UploadsModule, StripeModule,
     ConfigModule.forRoot({
       isGlobal: true, // Rend ConfigService disponible partout
@@ -23,6 +24,7 @@ import { MailModule } from './mail/mail.module';
       cache: true, // Met en cache les variables pour de meilleures performances
     }),
     SchedulesModule,
+    TvQueueModule,
   ],
   controllers: [AppController],
   providers: [AppService],
