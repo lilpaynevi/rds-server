@@ -228,6 +228,11 @@ model PlaylistItem {
   order    Int // Position in playlist
   duration Int? // Override media duration if needed
 
+  // Orientation souhaitée à l'affichage. AUTO = la TV décide à partir des
+  // dimensions réelles du fichier. LANDSCAPE/PORTRAIT force le rendu : si
+  // l'orientation réelle du média diffère, la TV le pivote de 90°.
+  orientation MediaOrientation @default(AUTO)
+
   createdAt DateTime @default(now())
 
   // Relations
@@ -366,6 +371,14 @@ enum Resolution {
 }
 
 enum Orientation {
+  LANDSCAPE
+  PORTRAIT
+}
+
+// Orientation d'un média dans une playlist. Distincte de `Orientation` (qui
+// décrit le montage physique d'une TV) à cause de la valeur AUTO.
+enum MediaOrientation {
+  AUTO
   LANDSCAPE
   PORTRAIT
 }

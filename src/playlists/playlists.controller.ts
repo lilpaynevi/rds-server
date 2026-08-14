@@ -16,6 +16,11 @@ import { UpdatePlaylistDto } from './dto/update-playlist.dto';
 import { FilesInterceptor } from '@nestjs/platform-express';
 import { GetUser } from 'src/decorator/get-user.decorator';
 import { JwtAuthGuard } from 'src/auth/auth.guard';
+import {
+  cleanupTempUploads,
+  MAX_UPLOAD_FILES,
+  mediaUploadOptions,
+} from 'src/common/upload.config';
 
 @Controller('playlists')
 export class PlaylistsController {
@@ -24,17 +29,7 @@ export class PlaylistsController {
   @UseGuards(JwtAuthGuard)
   @Post()
   @UseInterceptors(
-    FilesInterceptor('files', 20, {
-      limits: { fileSize: 100 * 1024 * 1024 }, // 100MB par fichier
-      // fileFilter: (req, file, cb) => {
-      //   // Accepter images et vidéos
-      //   if (file.mimetype.match(/\/(jpg|jpeg|png|gif|mp4|mov|avi)$/)) {
-      //     cb(null, true);
-      //   } else {
-      //     cb(new Error('Type de fichier non supporté'), false);
-      //   }
-      // },
-    }),
+    FilesInterceptor('files', MAX_UPLOAD_FILES, mediaUploadOptions),
   )
   async create(
     @Body() createPlaylistDto: any,
@@ -47,27 +42,22 @@ export class PlaylistsController {
       createPlaylistDto = JSON.parse(createPlaylistDto);
     }
 
-    return await this.playlistsService.create(
-      createPlaylistDto.playlistData,
-      user,
-      files,
-    );
+    try {
+      return await this.playlistsService.create(
+        createPlaylistDto.playlistData,
+        user,
+        files,
+      );
+    } finally {
+      // Purge les fichiers tampon restés sur disque en cas d'échec
+      await cleanupTempUploads(files);
+    }
   }
 
   @UseGuards(JwtAuthGuard)
   @Post('/create/multiple')
   @UseInterceptors(
-    FilesInterceptor('files', 20, {
-      limits: { fileSize: 100 * 1024 * 1024 }, // 100MB par fichier
-      // fileFilter: (req, file, cb) => {
-      //   // Accepter images et vidéos
-      //   if (file.mimetype.match(/\/(jpg|jpeg|png|gif|mp4|mov|avi)$/)) {
-      //     cb(null, true);
-      //   } else {
-      //     cb(new Error('Type de fichier non supporté'), false);
-      //   }
-      // },
-    }),
+    FilesInterceptor('files', MAX_UPLOAD_FILES, mediaUploadOptions),
   )
   async createMultiple(
     @Body() createPlaylistDto: any,
@@ -79,10 +69,14 @@ export class PlaylistsController {
       createPlaylistDto = JSON.parse(createPlaylistDto);
     }
 
-    return await this.playlistsService.createMultiple(
-      createPlaylistDto.playlistData,
-      files,
-    );
+    try {
+      return await this.playlistsService.createMultiple(
+        createPlaylistDto.playlistData,
+        files,
+      );
+    } finally {
+      await cleanupTempUploads(files);
+    }
   }
 
   @UseGuards(JwtAuthGuard)
@@ -109,25 +103,24 @@ export class PlaylistsController {
   @UseGuards(JwtAuthGuard)
   @Patch(':id')
   @UseInterceptors(
-    FilesInterceptor('files', 20, {
-      limits: { fileSize: 100 * 1024 * 1024 }, // 100MB par fichier
-      // fileFilter: (req, file, cb) => {
-      //   // Accepter images et vidéos
-      //   if (file.mimetype.match(/\/(jpg|jpeg|png|gif|mp4|mov|avi)$/)) {
-      //     cb(null, true);
-      //   } else {
-      //     cb(new Error('Type de fichier non supporté'), false);
-      //   }
-      // },
-    }),
+    FilesInterceptor('files', MAX_UPLOAD_FILES, mediaUploadOptions),
   )
-  update(
+  async update(
     @GetUser() user: any,
     @Param('id') id: string,
     @Body() updatePlaylistDto: UpdatePlaylistDto,
     @UploadedFiles() files: Express.Multer.File[],
   ) {
-    return this.playlistsService.update(id, updatePlaylistDto, user, files);
+    try {
+      return await this.playlistsService.update(
+        id,
+        updatePlaylistDto,
+        user,
+        files,
+      );
+    } finally {
+      await cleanupTempUploads(files);
+    }
   }
 
   @Patch('/:playlistId/televisionId/:televisionId/status')
@@ -150,6 +143,19 @@ export class PlaylistsController {
     @Body() data,
   ) {
     return this.playlistsService.changeDurationMedia(
+      playlistId,
+      mediaId,
+      data,
+    );
+  }
+
+  @Patch('/:playlistId/media/:mediaId/orientation')
+  changeOrientationMedia(
+    @Param('mediaId') mediaId: string,
+    @Param('playlistId') playlistId: string,
+    @Body() data: { orientation: 'AUTO' | 'LANDSCAPE' | 'PORTRAIT' },
+  ) {
+    return this.playlistsService.changeOrientationMedia(
       playlistId,
       mediaId,
       data,

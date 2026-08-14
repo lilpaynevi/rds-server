@@ -7,6 +7,48 @@ import {
 import { writeFile, mkdir, unlink } from 'fs/promises';
 import { join } from 'path';
 import { existsSync } from 'fs';
+import { persistUploadedFile } from 'src/common/upload.config';
+
+/**
+ * Dimensions d'un média, telles que fournies par l'app à l'upload.
+ *
+ * Le serveur ne décode aucun fichier : sans ces valeurs, `Media.width/height`
+ * restent nuls et la TV doit deviner l'orientation à la lecture. Toute valeur
+ * absente, non numérique ou négative est ramenée à `null` — mieux vaut pas de
+ * dimension qu'une dimension fausse, qui ferait pivoter un média à tort.
+ */
+function pickDimensions(source: any): {
+  width: number | null;
+  height: number | null;
+} {
+  const toDimension = (value: any): number | null => {
+    const parsed = Math.round(Number(value));
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+  };
+
+  const width = toDimension(source?.width);
+  const height = toDimension(source?.height);
+
+  // Une seule des deux dimensions ne permet pas de déduire une orientation
+  return width && height ? { width, height } : { width: null, height: null };
+}
+
+/**
+ * Le multipart ne transporte que du texte : le tableau de dimensions arrive
+ * sérialisé (ou pas du tout, si l'app est d'une version antérieure).
+ */
+function parseDimensions(raw: any): any[] {
+  if (Array.isArray(raw)) return raw;
+  if (typeof raw !== 'string' || !raw) return [];
+
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    console.warn('⚠️ Champ "dimensions" illisible, ignoré');
+    return [];
+  }
+}
 import { PrismaService } from 'src/prisma/prisma.service';
 import { error } from 'console';
 import { Socket } from 'socket.io';
@@ -157,7 +199,8 @@ export class PlaylistsService {
             unique: uniqueFileName,
           });
 
-          await writeFile(filePath, file.buffer);
+          // Déplace le fichier tampon écrit par multer (pas de buffer en mémoire)
+          await persistUploadedFile(file, filePath);
 
           // MODIFICATION: Fonction pour déterminer le mimeType
           const getMimeType = (type, extension) => {
@@ -196,6 +239,8 @@ export class PlaylistsService {
             }
           };
 
+          const { width, height } = pickDimensions(item);
+
           const media = await tx.media.create({
             data: {
               title: item.fileName.split('.')[0],
@@ -205,6 +250,8 @@ export class PlaylistsService {
               s3Url: `/uploads/media/${user.sub}/${parsedData.television}/${uniqueFileName}`,
               mimeType: getMimeType(item.type, extension), // MODIFIÉ
               fileSize: file.size,
+              width,
+              height,
               type: item.type.toUpperCase(), // PDF, IMAGE, VIDEO
               duration: item.duration ? Math.round(item.duration * 1000) : null, // Durée en ms
               userId: user.sub,
@@ -242,8 +289,12 @@ export class PlaylistsService {
             description: `Programmation pour ${parsedData.titre}`,
             startDate: parsedData.schedule.startDate,
             endDate: parsedData.schedule.endDate,
-            startTime: parsedData.schedule.startTime,
-            endTime: parsedData.schedule.endTime,
+            // startTime/endTime sont obligatoires en base : sans repli, une
+            // charge utile sans horaires fait échouer toute la transaction,
+            // donc la création de la playlist entière. Journée complète par
+            // défaut, cohérent avec "diffuser ces jours-là".
+            startTime: parsedData.schedule.startTime || '00:00',
+            endTime: parsedData.schedule.endTime || '23:59',
             daysOfWeek: parsedData.schedule.daysOfWeek,
             isActive: true,
             priority: 5,
@@ -394,7 +445,8 @@ export class PlaylistsService {
               unique: uniqueFileName,
             });
 
-            await writeFile(filePath, file.buffer);
+            // Déplace le fichier tampon écrit par multer (pas de buffer en mémoire)
+            await persistUploadedFile(file, filePath);
 
             // Fonction pour déterminer le mimeType
             const getMimeType = (type, extension) => {
@@ -421,6 +473,8 @@ export class PlaylistsService {
             };
 
             console.log('fefrfrfrfrfrfr: ', item);
+            const { width, height } = pickDimensions(item);
+
             const media = await tx.media.create({
               data: {
                 title: item.name.split('.')[0],
@@ -430,6 +484,8 @@ export class PlaylistsService {
                 s3Url: `/uploads/media/${findTV.userId}/${uniqueFileName}`,
                 mimeType: getMimeType(item.type, extension),
                 fileSize: file.size,
+                width,
+                height,
                 type: item.type.toUpperCase(),
                 duration: item.duration
                   ? Math.round(item.duration * 1000)
@@ -678,6 +734,11 @@ export class PlaylistsService {
       const updatedItems = [];
       const processedMediaIds = [];
 
+      // Dimensions envoyées par l'app, alignées sur l'ordre des fichiers.
+      // Multipart ne transporte que du texte : le champ arrive sérialisé.
+      const uploadedDimensions: { width?: number; height?: number }[] =
+        parseDimensions(parsedData.dimensions);
+
       // ✅ 5️⃣ TRAITER les médias (nouveaux, modifiés, supprimés)
       // ✅ 5️⃣ TRAITER les médias (nouveaux, modifiés, supprimés)
       if (files) {
@@ -765,7 +826,8 @@ export class PlaylistsService {
             unique: uniqueFileName,
           });
 
-          await writeFile(filePath, file.buffer);
+          // Déplace le fichier tampon écrit par multer (pas de buffer en mémoire)
+          await persistUploadedFile(file, filePath);
 
           // MODIFICATION: Fonction pour déterminer le mimeType
           const getMimeType = (mimetype, extension) => {
@@ -841,6 +903,7 @@ export class PlaylistsService {
           };
 
           const mediaType = getMediaType(file.mimetype, extension);
+          const { width, height } = pickDimensions(uploadedDimensions[i]);
 
           // Créer le nouveau média
           const media = await tx.media.create({
@@ -854,6 +917,8 @@ export class PlaylistsService {
               fileSize: file.size,
               type: mediaType, // MODIFIÉ: PDF, IMAGE, VIDEO
               duration: null, // Sera mis à jour plus tard si nécessaire
+              width,
+              height,
               userId: user.sub,
               status: 'ACTIVE',
             },
@@ -985,7 +1050,8 @@ export class PlaylistsService {
               description: `Programmation pour ${parsedData.titre || existingPlaylist.name}`,
               startDate: startDate,
               endDate: endDate,
-              startTime: parsedData.heureLancement,
+              // Même repli que dans create() : champs obligatoires en base
+              startTime: parsedData.heureLancement || '00:00',
               endTime: parsedData.heureFin || '23:59',
               daysOfWeek: parsedData.joursActifs || [0, 1, 2, 3, 4, 5, 6],
               isActive: parsedData.planningActif ?? true,
@@ -1000,9 +1066,13 @@ export class PlaylistsService {
           console.log('✅ Nouveau planning créé');
         }
       }
-      // Si plus de planning demandé, supprimer l'existant
+      // Suppression du planning : uniquement sur demande EXPLICITE.
+      // Se fier à l'absence de `dateLancement` effaçait la programmation à
+      // chaque PATCH qui ne la mentionnait pas — donc à chaque ajout de média,
+      // `handleUpload` n'envoyant que les fichiers.
       else if (
-        !parsedData.dateLancement &&
+        (parsedData.removeSchedule === true ||
+          parsedData.removeSchedule === 'true') &&
         existingPlaylist.schedules?.length > 0
       ) {
         await tx.schedule.deleteMany({
@@ -1127,12 +1197,15 @@ export class PlaylistsService {
         },
         items: {
           select: {
+            orientation: true,
             media: {
               select: {
                 id: true,
                 filename: true,
                 s3Url: true,
                 duration: true,
+                width: true,
+                height: true,
               },
             },
           },
@@ -1329,6 +1402,80 @@ export class PlaylistsService {
       console.error('Erreur changeDurationMedia:', error);
       throw error;
     }
+  }
+
+  /**
+   * Orientation d'affichage d'un média, propre à cette playlist : elle est
+   * portée par le PlaylistItem (comme l'ordre), pas par le média lui-même, donc
+   * le même fichier peut être orienté différemment d'une playlist à l'autre.
+   */
+  async changeOrientationMedia(
+    playlistId: string,
+    mediaId: string,
+    data: { orientation: 'AUTO' | 'LANDSCAPE' | 'PORTRAIT' },
+  ) {
+    const ALLOWED = ['AUTO', 'LANDSCAPE', 'PORTRAIT'];
+
+    if (!ALLOWED.includes(data?.orientation)) {
+      throw new BadRequestException(
+        `Orientation invalide. Valeurs acceptées : ${ALLOWED.join(', ')}`,
+      );
+    }
+
+    const playlistItem = await this.prisma.playlistItem.findFirst({
+      where: { playlistId, mediaId },
+    });
+
+    if (!playlistItem) {
+      throw new NotFoundException('Média introuvable dans cette playlist');
+    }
+
+    const updated = await this.prisma.playlistItem.update({
+      where: { id: playlistItem.id },
+      data: { orientation: data.orientation },
+    });
+
+    await this.prisma.playlist.update({
+      where: { id: playlistId },
+      data: { updatedAt: new Date() },
+    });
+
+    // Notification ciblée : la TV corrige l'orientation du média sans recharger
+    // la playlist ni repartir du premier média, contrairement à un
+    // "tv-change-playlist".
+    // On vise les TVs auxquelles la playlist est assignée *et* celles qui l'ont
+    // dans leur file d'attente : une playlist peut être diffusée par l'un ou
+    // l'autre chemin.
+    const [assignments, queueEntries] = await Promise.all([
+      this.prisma.playlistTelevision.findMany({
+        where: { playlistId },
+        select: { televisionId: true },
+      }),
+      this.prisma.playlistQueueItem.findMany({
+        where: { playlistId },
+        select: { televisionId: true },
+      }),
+    ]);
+
+    const televisionIds = new Set(
+      [...assignments, ...queueEntries]
+        .map((entry) => entry.televisionId)
+        .filter((id): id is string => Boolean(id)),
+    );
+
+    televisionIds.forEach((televisionId) =>
+      this.websocket.notifyTV(televisionId, 'tv-media-orientation-updated', {
+        playlistId,
+        mediaId,
+        orientation: data.orientation,
+      }),
+    );
+
+    return {
+      success: true,
+      message: 'Orientation mise à jour avec succès',
+      data: updated,
+    };
   }
 
   async assignPlaylistToTV(data: { televisionId: string; playlistId: string }) {

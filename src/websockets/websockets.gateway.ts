@@ -354,7 +354,9 @@ export class WebsocketsGateway
       });
 
       if (!playlist) {
-        this.logger.warn(`⚠️ changePlaylistForTV: playlist ${playlistId} introuvable`);
+        this.logger.warn(
+          `⚠️ changePlaylistForTV: playlist ${playlistId} introuvable`,
+        );
         return;
       }
 
@@ -363,6 +365,9 @@ export class WebsocketsGateway
         duration: item.media.duration,
         mediaId: item.mediaId,
         order: item.order,
+        orientation: item.orientation,
+        width: item.media.width,
+        height: item.media.height,
       }));
 
       this.notifyTV(tvId, 'tv-change-playlist-success', {
@@ -380,8 +385,8 @@ export class WebsocketsGateway
   notifyTV(deviceId: string, event: string, data: any): boolean {
     try {
       this.server.to(`tv:${deviceId}`).emit(event, data);
-      console.log("🚀 ~ WebsocketsGateway ~ notifyTV ~ deviceId:", deviceId)
-      console.log("🚀 ~ WebsocketsGateway ~ notifyTV ~ data:", data)
+      console.log('🚀 ~ WebsocketsGateway ~ notifyTV ~ deviceId:', deviceId);
+      console.log('🚀 ~ WebsocketsGateway ~ notifyTV ~ data:', data);
       this.logger.log(
         `📤 Notification envoyée - Device: ${deviceId}, Event: ${event}`,
       );
@@ -623,9 +628,7 @@ export class WebsocketsGateway
 
   // 🎯 CRUD WebSocket (tes méthodes existantes)
   @SubscribeMessage('tv-schedules-updated')
-  handleSchedulesUpdated(
-    @MessageBody() data: { tvId: string },
-  ) {
+  handleSchedulesUpdated(@MessageBody() data: { tvId: string }) {
     if (data?.tvId) {
       this.notifyTV(data.tvId, 'tv-schedules-updated', {});
     }
@@ -683,12 +686,18 @@ export class WebsocketsGateway
             uri: item.media.s3Url,
             duration: item.duration ?? item.media.duration,
             id: item.id,
+            mediaId: item.mediaId,
+            orientation: item.orientation,
+            width: item.media.width,
+            height: item.media.height,
           })),
         }));
 
       client.emit('tv-scheduled-playlists', { playlists });
     } catch (error) {
-      this.logger.error(`❌ Erreur tv-get-scheduled-playlists: ${error.message}`);
+      this.logger.error(
+        `❌ Erreur tv-get-scheduled-playlists: ${error.message}`,
+      );
       client.emit('tv-scheduled-playlists', { playlists: [] });
     }
   }
@@ -726,6 +735,10 @@ export class WebsocketsGateway
           uri: item.media.s3Url,
           duration: item.duration ?? item.media.duration,
           id: item.id,
+          mediaId: item.mediaId,
+          orientation: item.orientation,
+          width: item.media.width,
+          height: item.media.height,
         })),
       }));
 
@@ -759,10 +772,7 @@ export class WebsocketsGateway
               schedules: {
                 some: {
                   isActive: true,
-                  OR: [
-                    { televisionId: data.tvId },
-                    { televisionId: null },
-                  ],
+                  OR: [{ televisionId: data.tvId }, { televisionId: null }],
                 },
               },
             },
@@ -776,10 +786,7 @@ export class WebsocketsGateway
           schedules: {
             where: {
               isActive: true,
-              OR: [
-                { televisionId: data.tvId },
-                { televisionId: null },
-              ],
+              OR: [{ televisionId: data.tvId }, { televisionId: null }],
             },
           },
         },
@@ -834,10 +841,15 @@ export class WebsocketsGateway
         uri: item.media.s3Url,
         duration: item.duration ?? item.media.duration,
         id: item.id,
+        mediaId: item.mediaId,
+        orientation: item.orientation,
+        width: item.media.width,
+        height: item.media.height,
       }));
 
       client.emit('tv-find-playlist-success', {
         message: `Playlists pour la TV: ${data.tvId}`,
+        playlistId: activePlaylist.id,
         items: playlistItems,
       });
 
@@ -935,6 +947,9 @@ export class WebsocketsGateway
         duration: item.media.duration, // Utiliser la durée de l'item ou celle du média
         mediaId: item.mediaId,
         order: item.order,
+        orientation: item.orientation,
+        width: item.media.width,
+        height: item.media.height,
       }));
 
       const response = {

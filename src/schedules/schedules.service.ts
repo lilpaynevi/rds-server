@@ -32,13 +32,54 @@ export class SchedulesService {
     });
   }
 
+  /**
+   * Prévient toutes les TVs qu'un changement de planning concerne.
+   *
+   * `schedule.televisionId` ne suffit pas : il est nullable (planning attaché à
+   * la seule playlist), et une playlist peut être diffusée par plusieurs TVs —
+   * via une assignation ou via leur file d'attente. Ne notifier que la TV
+   * portée par le planning laissait les autres avec une programmation périmée
+   * jusqu'à leur prochain redémarrage.
+   *
+   * `extraTelevisionIds` sert à prévenir aussi l'ancienne TV quand le planning
+   * en change : sans ça, elle conserverait un planning qui ne la concerne plus.
+   */
+  private async notifyScheduleTargets(
+    schedule: { televisionId?: string | null; playlistId?: string | null },
+    extraTelevisionIds: (string | null | undefined)[] = [],
+  ) {
+    const televisionIds = new Set<string>();
+
+    if (schedule.televisionId) televisionIds.add(schedule.televisionId);
+    extraTelevisionIds.forEach((id) => id && televisionIds.add(id));
+
+    if (schedule.playlistId) {
+      const [assignments, queueEntries] = await Promise.all([
+        this.prisma.playlistTelevision.findMany({
+          where: { playlistId: schedule.playlistId },
+          select: { televisionId: true },
+        }),
+        this.prisma.playlistQueueItem.findMany({
+          where: { playlistId: schedule.playlistId },
+          select: { televisionId: true },
+        }),
+      ]);
+
+      [...assignments, ...queueEntries].forEach(
+        (entry) => entry.televisionId && televisionIds.add(entry.televisionId),
+      );
+    }
+
+    televisionIds.forEach((televisionId) =>
+      this.websocket.notifyTV(televisionId, 'tv-schedules-updated', {}),
+    );
+  }
+
   async create(data: any, user: any) {
     const schedule = await this.prisma.schedule.create({
       data: { ...data, userId: user.sub },
     });
-    if (schedule.televisionId) {
-      this.websocket.notifyTV(schedule.televisionId, 'tv-schedules-updated', {});
-    }
+    await this.notifyScheduleTargets(schedule);
     return schedule;
   }
 
@@ -56,8 +97,16 @@ export class SchedulesService {
       data,
     });
 
-    if (updated.televisionId) {
-      this.websocket.notifyTV(updated.televisionId, 'tv-schedules-updated', {});
+    // L'ancienne TV et l'ancienne playlist doivent être prévenues aussi, sinon
+    // elles gardent une programmation qui ne les concerne plus.
+    await this.notifyScheduleTargets(updated, [checkingSchedule.televisionId]);
+    if (
+      checkingSchedule.playlistId &&
+      checkingSchedule.playlistId !== updated.playlistId
+    ) {
+      await this.notifyScheduleTargets({
+        playlistId: checkingSchedule.playlistId,
+      });
     }
 
     return updated;
@@ -69,9 +118,9 @@ export class SchedulesService {
     });
     if (!schedule) throw new NotFoundException('Planning introuvable');
     await this.prisma.schedule.delete({ where: { id: scheduleId } });
-    if (schedule.televisionId) {
-      this.websocket.notifyTV(schedule.televisionId, 'tv-schedules-updated', {});
-    }
+    // Résolu après suppression, mais à partir du planning lu avant : les TVs
+    // concernées sont celles qu'il visait.
+    await this.notifyScheduleTargets(schedule);
     return { success: true };
   }
 }
