@@ -33,9 +33,31 @@ function pickDimensions(source: any): {
   return width && height ? { width, height } : { width: null, height: null };
 }
 
+/** Bornes acceptées pour une durée d'affichage, en millisecondes. */
+const MIN_DISPLAY_DURATION = 1000;
+const MAX_DISPLAY_DURATION = 600_000;
+
 /**
- * Le multipart ne transporte que du texte : le tableau de dimensions arrive
- * sérialisé (ou pas du tout, si l'app est d'une version antérieure).
+ * Durée d'affichage demandée par le client, en millisecondes.
+ *
+ * Renvoie `null` dès que la valeur est absente ou hors bornes, auquel cas
+ * l'appelant retombe sur la durée par défaut du type. Les bornes sont les mêmes
+ * que celles de `changeDurationMedia` : sans elles, une erreur d'unité côté
+ * client (secondes envoyées comme des millisecondes) pouvait enregistrer
+ * plusieurs heures d'affichage pour une seule image.
+ */
+function pickDuration(raw: any): number | null {
+  const value = Math.round(Number(raw));
+  if (!Number.isFinite(value)) return null;
+  if (value < MIN_DISPLAY_DURATION || value > MAX_DISPLAY_DURATION) return null;
+  return value;
+}
+
+/**
+ * Désérialise un tableau JSON parallèle à la liste des fichiers (dimensions,
+ * durées…). Le multipart ne transporte que du texte : ces champs arrivent
+ * sérialisés, ou pas du tout si l'app est d'une version antérieure — auquel cas
+ * un tableau vide fait retomber chaque média sur ses valeurs par défaut.
  */
 function parseDimensions(raw: any): any[] {
   if (Array.isArray(raw)) return raw;
@@ -49,6 +71,25 @@ function parseDimensions(raw: any): any[] {
     return [];
   }
 }
+/**
+ * Options des transactions qui écrivent des fichiers sur le disque.
+ *
+ * `create`, `createMultiple` et `update` déplacent les fichiers tampon de multer
+ * À L'INTÉRIEUR de la transaction interactive. Or Prisma coupe une transaction
+ * interactive au bout de 5 s par défaut (`timeout`) et refuse d'en ouvrir une
+ * après 2 s d'attente (`maxWait`) : dès qu'un envoi dépasse ces quelques
+ * secondes — une seule vidéo suffit, et le dashboard en accepte 20 d'un coup —
+ * la transaction est fermée d'office et tout l'appel échoue en P2028
+ * (« Transaction already closed »), après avoir écrit les fichiers sur le
+ * disque. Ces bornes larges rendent l'échec improbable ; le vrai correctif
+ * (sortir les I/O disque de la transaction) est une refonte de ces trois
+ * méthodes, hors du périmètre de cette vérification.
+ */
+const UPLOAD_TRANSACTION_OPTIONS = {
+  maxWait: 30_000, // 30 s pour obtenir une connexion du pool
+  timeout: 600_000, // 10 min, aligné sur le timeout HTTP côté client (0 = illimité)
+};
+
 import { PrismaService } from 'src/prisma/prisma.service';
 import { error } from 'console';
 import { Socket } from 'socket.io';
@@ -122,6 +163,30 @@ export class PlaylistsService {
       });
 
       console.log('✅ Relation playlist-television créée');
+
+      // 4️⃣ bis — « Activer immédiatement » : entrer dans la FILE D'ATTENTE.
+      //
+      // C'est elle, et elle seule, que la TV déroule. Une playlist créée
+      // « active » n'y était jamais inscrite : le drapeau `isActive` était bien
+      // posé sur la playlist, mais rien ne la diffusait. `changeActivePlaylist`
+      // (l'interrupteur de l'app) crée bien cette entrée — la création, non.
+      if (parsedData.isActive === true) {
+        const last = await tx.playlistQueueItem.findFirst({
+          where: { televisionId: parsedData.television },
+          orderBy: { position: 'desc' },
+        });
+
+        await tx.playlistQueueItem.create({
+          data: {
+            playlistId: playlist.id,
+            televisionId: parsedData.television,
+            userId: user.sub,
+            position: (last?.position ?? -1) + 1,
+          },
+        });
+
+        console.log('✅ Playlist ajoutée à la file de diffusion');
+      }
 
       // 5️⃣ Traiter les médias
       const createdItems = [];
@@ -315,21 +380,27 @@ export class PlaylistsService {
           televisionId: parsedData.television,
         },
       };
-    }).then(async (result) => {
+    }, UPLOAD_TRANSACTION_OPTIONS).then(async (result) => {
+      // Notification APRÈS commit : avant, la TV rechargerait sa file sans y
+      // voir la nouvelle entrée.
+      //
+      // `tv-queue-updated` plutôt qu'une poussée directe : la TV redemande sa
+      // file, que le serveur filtre déjà selon les fenêtres de diffusion. Une
+      // playlist créée « active » ET programmée n'apparaîtra donc qu'à l'heure
+      // dite, au lieu d'être forcée à l'écran immédiatement.
       if (parsedData.isActive === true) {
-        await this.websocket.changePlaylistForTV(
-          parsedData.television,
-          result.playlist.id,
-        );
+        this.websocket.notifyTV(parsedData.television, 'tv-queue-updated', {
+          playlistId: result.playlist.id,
+        });
       }
       return result;
     });
   }
 
   async createMultiple(createPlaylistDto: any, files?: Express.Multer.File[]) {
-    console.log('🚀 ~ PlaylistsService ~ create ~ files:', files);
+    console.log('🚀 ~ PlaylistsService ~ createMultiple ~ files:', files);
     console.log(
-      '🚀 ~ PlaylistsService ~ create ~ createPlaylistDto:',
+      '🚀 ~ PlaylistsService ~ createMultiple ~ createPlaylistDto:',
       createPlaylistDto,
     );
 
@@ -337,12 +408,25 @@ export class PlaylistsService {
 
     return await this.prisma.$transaction(async (tx) => {
       // ✅ 1️⃣ VÉRIFIER que toutes les télévisions existent
-      const televisionIds = Array.isArray(parsedData.televisions)
+      const requestedTelevisionIds = Array.isArray(parsedData.televisions)
         ? parsedData.televisions
         : [parsedData.television];
 
-      if (!televisionIds || televisionIds.length === 0) {
-        throw new Error('Aucune télévision sélectionnée');
+      // Sans normalisation, une charge utile sans `televisions` NI `television`
+      // donnait `[undefined]` : le test de longueur passait, puis Prisma
+      // explosait sur `id: { in: [undefined] }` (500 illisible). Les doublons,
+      // eux, faussaient la comparaison de longueur ci-dessous et déclenchaient
+      // un faux « télévisions introuvables ».
+      const televisionIds: string[] = Array.from(
+        new Set(
+          requestedTelevisionIds.filter(
+            (id: any) => typeof id === 'string' && id.length > 0,
+          ),
+        ),
+      );
+
+      if (televisionIds.length === 0) {
+        throw new BadRequestException('Aucune télévision sélectionnée');
       }
 
       const televisions = await tx.television.findMany({
@@ -352,156 +436,232 @@ export class PlaylistsService {
       });
 
       if (televisions.length !== televisionIds.length) {
-        throw new Error(
+        // `new Error` sortait en 500 « Internal server error » : le message
+        // français n'atteignait jamais le dashboard, qui lit
+        // `error.response.data.message`.
+        throw new BadRequestException(
           "Certaines télévisions sont introuvables ou vous n'y avez pas accès",
         );
       }
 
       console.log(`✅ ${televisions.length} télévision(s) trouvée(s)`);
 
-      // ✅ 2️⃣ CRÉER LES MÉDIAS (une seule fois pour toutes les playlists)
+      // `Television.userId` est nullable en base alors que `Playlist.userId` et
+      // `Media.userId` sont obligatoires : un écran rattaché à aucun compte
+      // faisait avorter la transaction sur une erreur Prisma illisible.
+      const orphanTelevision = televisions.find(
+        (television) => !television.userId,
+      );
+
+      if (orphanTelevision) {
+        throw new BadRequestException(
+          `L'écran « ${orphanTelevision.name} » n'est rattaché à aucun compte : impossible d'y créer une playlist`,
+        );
+      }
+
+      // Propriétaire des fichiers déposés : celui du PREMIER écran demandé
+      // (ordre du client — `findMany` n'en garantit aucun). Avec un seul écran,
+      // c'est exactement l'ancien comportement.
+      const ownerUserId =
+        televisions.find((television) => television.id === televisionIds[0])
+          ?.userId ?? televisions[0].userId;
+
+      /**
+       * ✅ 2️⃣ CRÉER LES MÉDIAS — UNE SEULE FOIS, HORS DE LA BOUCLE D'ÉCRANS.
+       *
+       * Multer n'écrit qu'UN fichier tampon par upload et `persistUploadedFile`
+       * le DÉPLACE : repasser sur le même `file` à l'écran suivant échoue en
+       * ENOENT et fait avorter toute la transaction (et dupliquerait au passage
+       * les médias et leurs `order` : 1,2,3,1,2,3). Un fichier = un `Media`,
+       * partagé entre les playlists par leurs `PlaylistItem` — NE PAS
+       * réimbriquer cette boucle dans celle des écrans « pour simplifier ».
+       */
+      const uploadedFiles = files ?? [];
       const createdMedias = [];
+
+      // Emplacement volontairement indépendant de l'écran, puisque le fichier
+      // est partagé par toutes les playlists créées ici. Le préfixe reste
+      // `/uploads/media/...`, seule arborescence servie par UploadsController.
+      const uploadDir = join(process.cwd(), 'uploads', 'media', ownerUserId);
+
+      if (uploadedFiles.length > 0 && !existsSync(uploadDir)) {
+        await mkdir(uploadDir, { recursive: true });
+      }
+
+      // ✅ Fonction pour extraire l'extension
+      const getFileExtension = (filename, mimetype) => {
+        console.log(
+          '🔍 Debug extension - filename:',
+          filename,
+          'mimetype:',
+          mimetype,
+        );
+
+        if (filename && filename.includes('.')) {
+          const ext = filename.split('.').pop().toLowerCase();
+          console.log('📝 Extension extraite du nom:', ext);
+          return ext;
+        }
+
+        // Fallback basé sur le mimetype
+        switch (mimetype) {
+          case 'application/pdf':
+            return 'pdf';
+          case 'image/jpeg':
+            return 'jpg';
+          case 'image/png':
+            return 'png';
+          case 'image/gif':
+            return 'gif';
+          case 'image/webp':
+            return 'webp';
+          case 'video/mp4':
+            return 'mp4';
+          case 'video/quicktime':
+            return 'mov';
+          case 'video/webm':
+            return 'webm';
+          case 'video/avi':
+            return 'avi';
+          default:
+            return 'bin';
+        }
+      };
+
+      // Fonction pour déterminer le mimeType
+      const getMimeType = (type, extension) => {
+        switch (type.toLowerCase()) {
+          case 'video':
+            return extension === 'mov' ? 'video/quicktime' : 'video/mp4';
+          case 'pdf':
+            return 'application/pdf';
+          case 'image':
+          default:
+            switch (extension) {
+              case 'png':
+                return 'image/png';
+              case 'gif':
+                return 'image/gif';
+              case 'webp':
+                return 'image/webp';
+              case 'jpg':
+              case 'jpeg':
+              default:
+                return 'image/jpeg';
+            }
+        }
+      };
+
+      /**
+       * `type` arrive tel quel du client ('image', 'video', 'pdf'…) et partait
+       * en base via un simple `toUpperCase()`. Or l'enum Prisma `MediaType` ne
+       * connaît que IMAGE|VIDEO|AUDIO|DOCUMENT : un PDF produisait la valeur
+       * 'PDF', rejetée par Prisma AU MILIEU de la transaction — donc après le
+       * déplacement des fichiers, qui restaient orphelins sur le disque.
+       * Correspondance alignée sur `update()` (pdf → IMAGE) ; le vrai type reste
+       * porté par `mimeType` ('application/pdf').
+       */
+      const getMediaType = (
+        type,
+        extension,
+      ): 'IMAGE' | 'VIDEO' | 'AUDIO' | 'DOCUMENT' => {
+        // Type de retour explicite : sans lui TS élargit les littéraux en
+        // `string`, non assignable à l'enum `MediaType` attendu par Prisma.
+        switch (String(type || '').toLowerCase()) {
+          case 'video':
+            return 'VIDEO';
+          case 'audio':
+            return 'AUDIO';
+          case 'document':
+            return 'DOCUMENT';
+          case 'image':
+          case 'pdf':
+            return 'IMAGE';
+          default:
+            // Type inconnu : on se rabat sur l'extension plutôt que d'envoyer
+            // une valeur d'enum invalide.
+            switch (extension) {
+              case 'mp4':
+              case 'mov':
+              case 'webm':
+              case 'avi':
+              case 'mkv':
+                return 'VIDEO';
+              default:
+                return 'IMAGE';
+            }
+        }
+      };
+
+      for (let i = 0; i < uploadedFiles.length; i++) {
+        const file = uploadedFiles[i];
+        const item = parsedData.items?.[i];
+
+        if (!file) continue;
+
+        // Sans description associée, `item.name.split(...)` levait un TypeError
+        // au milieu de la transaction : message exploitable à la place.
+        if (!item) {
+          throw new BadRequestException(
+            `Aucune information fournie pour le fichier n°${i + 1} (champ « items »)`,
+          );
+        }
+
+        const originalName = item.name || file.originalname || 'media';
+        const itemType = item.type || 'image';
+
+        const timestamp = Date.now();
+        const randomId = Math.random().toString(36).substring(2);
+        const extension = getFileExtension(originalName, file.mimetype);
+        const uniqueFileName = `${timestamp}_${randomId}.${extension}`;
+        const filePath = join(uploadDir, uniqueFileName);
+
+        console.log('📁 Traitement fichier:', {
+          original: originalName,
+          mimetype: file.mimetype,
+          extension: extension,
+          unique: uniqueFileName,
+        });
+
+        // Déplace le fichier tampon écrit par multer (pas de buffer en mémoire)
+        await persistUploadedFile(file, filePath);
+
+        const { width, height } = pickDimensions(item);
+
+        const media = await tx.media.create({
+          data: {
+            title: originalName.split('.')[0],
+            filename: uniqueFileName,
+            originalName: originalName,
+            s3Key: uniqueFileName,
+            s3Url: `/uploads/media/${ownerUserId}/${uniqueFileName}`,
+            mimeType: getMimeType(itemType, extension),
+            fileSize: file.size,
+            width,
+            height,
+            type: getMediaType(itemType, extension),
+            duration: item.duration ? Math.round(item.duration * 1000) : null,
+            userId: ownerUserId,
+            status: 'ACTIVE',
+          },
+        });
+
+        createdMedias.push({
+          media,
+          // Copie normalisée : la suite lit `type` (durée par défaut) et
+          // `duration` (total), qui doivent rester exploitables.
+          originalItem: { ...item, name: originalName, type: itemType },
+          order: i + 1,
+        });
+      }
 
       console.log(`✅ ${createdMedias.length} média(s) créé(s)`);
 
-      // ✅ 3️⃣ CRÉER UNE PLAYLIST POUR CHAQUE TÉLÉVISION
+      // ✅ 3️⃣ CRÉER UNE PLAYLIST PAR TÉLÉVISION, sur ces mêmes médias
       const results = [];
 
       for (const television of televisions) {
         console.log(`🔄 Création playlist pour TV: ${television.name}`);
-
-        const findTV = await this.prisma.television.findUnique({
-          where: {
-            id: television.id,
-          },
-        });
-
-        for (let i = 0; i < files.length; i++) {
-          const item = parsedData.items[i];
-          const file = files ? files[i] : null;
-
-          if (file) {
-            // Créer le dossier de base pour l'utilisateur
-            const uploadDir = join(
-              process.cwd(),
-              'uploads',
-              'media',
-              findTV.userId,
-            );
-            if (!existsSync(uploadDir)) {
-              await mkdir(uploadDir, { recursive: true });
-            }
-
-            // ✅ Fonction pour extraire l'extension
-            const getFileExtension = (filename, mimetype) => {
-              console.log(
-                '🔍 Debug extension - filename:',
-                filename,
-                'mimetype:',
-                mimetype,
-              );
-
-              if (filename && filename.includes('.')) {
-                const ext = filename.split('.').pop().toLowerCase();
-                console.log('📝 Extension extraite du nom:', ext);
-                return ext;
-              }
-
-              // Fallback basé sur le mimetype
-              switch (mimetype) {
-                case 'application/pdf':
-                  return 'pdf';
-                case 'image/jpeg':
-                  return 'jpg';
-                case 'image/png':
-                  return 'png';
-                case 'image/gif':
-                  return 'gif';
-                case 'image/webp':
-                  return 'webp';
-                case 'video/mp4':
-                  return 'mp4';
-                case 'video/quicktime':
-                  return 'mov';
-                case 'video/webm':
-                  return 'webm';
-                case 'video/avi':
-                  return 'avi';
-                default:
-                  return 'bin';
-              }
-            };
-
-            const timestamp = Date.now();
-            const randomId = Math.random().toString(36).substring(2);
-            const extension = getFileExtension(item.name, file.mimetype);
-            const uniqueFileName = `${timestamp}_${randomId}.${extension}`;
-            const filePath = join(uploadDir, uniqueFileName);
-
-            console.log('📁 Traitement fichier:', {
-              original: item.name,
-              mimetype: file.mimetype,
-              extension: extension,
-              unique: uniqueFileName,
-            });
-
-            // Déplace le fichier tampon écrit par multer (pas de buffer en mémoire)
-            await persistUploadedFile(file, filePath);
-
-            // Fonction pour déterminer le mimeType
-            const getMimeType = (type, extension) => {
-              switch (type.toLowerCase()) {
-                case 'video':
-                  return extension === 'mov' ? 'video/quicktime' : 'video/mp4';
-                case 'pdf':
-                  return 'application/pdf';
-                case 'image':
-                default:
-                  switch (extension) {
-                    case 'png':
-                      return 'image/png';
-                    case 'gif':
-                      return 'image/gif';
-                    case 'webp':
-                      return 'image/webp';
-                    case 'jpg':
-                    case 'jpeg':
-                    default:
-                      return 'image/jpeg';
-                  }
-              }
-            };
-
-            console.log('fefrfrfrfrfrfr: ', item);
-            const { width, height } = pickDimensions(item);
-
-            const media = await tx.media.create({
-              data: {
-                title: item.name.split('.')[0],
-                filename: uniqueFileName,
-                originalName: item.name,
-                s3Key: uniqueFileName,
-                s3Url: `/uploads/media/${findTV.userId}/${uniqueFileName}`,
-                mimeType: getMimeType(item.type, extension),
-                fileSize: file.size,
-                width,
-                height,
-                type: item.type.toUpperCase(),
-                duration: item.duration
-                  ? Math.round(item.duration * 1000)
-                  : null,
-                userId: findTV.userId,
-                status: 'ACTIVE',
-              },
-            });
-
-            createdMedias.push({
-              media,
-              originalItem: item,
-              order: i + 1,
-            });
-          }
-        }
 
         // Créer la playlist
         const playlist = await tx.playlist.create({
@@ -511,7 +671,7 @@ export class PlaylistsService {
             isActive: parsedData.isActive,
             shuffleMode: false,
             repeatMode: 'LOOP',
-            userId: findTV.userId,
+            userId: television.userId,
           },
         });
 
@@ -566,12 +726,17 @@ export class PlaylistsService {
               description: `Programmation pour ${parsedData.titre} sur ${television.name}`,
               startDate: parsedData.schedule.startDate,
               endDate: parsedData.schedule.endDate,
-              startTime: parsedData.schedule.startTime,
-              endTime: parsedData.schedule.endTime,
+              // Mêmes replis que dans `create()` : `startTime`/`endTime` sont
+              // obligatoires en base (Schedule.startTime/endTime: String). Sans
+              // eux, une charge utile qui précise les jours mais pas les heures
+              // faisait échouer la transaction ENTIÈRE — après le déplacement
+              // des fichiers, donc en laissant des orphelins sur le disque.
+              startTime: parsedData.schedule.startTime || '00:00',
+              endTime: parsedData.schedule.endTime || '23:59',
               daysOfWeek: parsedData.schedule.daysOfWeek,
               isActive: true,
               priority: 5,
-              userId: findTV.userId,
+              userId: television.userId,
               televisionId: television.id,
               playlistId: playlist.id,
             },
@@ -619,7 +784,7 @@ export class PlaylistsService {
           hasSchedule: !!parsedData?.schedule?.daysOfWeek?.length,
         },
       };
-    });
+    }, UPLOAD_TRANSACTION_OPTIONS);
   }
 
   async update(
@@ -636,7 +801,7 @@ export class PlaylistsService {
     );
     const parsedData = updatePlaylistDto;
 
-    return await this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.$transaction(async (tx) => {
       // ✅ 1️⃣ VÉRIFIER que la playlist existe et appartient à l'utilisateur
       const existingPlaylist = await tx.playlist.findFirst({
         where: {
@@ -738,6 +903,11 @@ export class PlaylistsService {
       // Multipart ne transporte que du texte : le champ arrive sérialisé.
       const uploadedDimensions: { width?: number; height?: number }[] =
         parseDimensions(parsedData.dimensions);
+
+      // Durées d'affichage choisies dans le formulaire, en millisecondes et dans
+      // le même ordre. Un tableau vide (app antérieure) fait retomber chaque
+      // média sur la durée par défaut de son type.
+      const uploadedDurations: any[] = parseDimensions(parsedData.durations);
 
       // ✅ 5️⃣ TRAITER les médias (nouveaux, modifiés, supprimés)
       // ✅ 5️⃣ TRAITER les médias (nouveaux, modifiés, supprimés)
@@ -905,6 +1075,15 @@ export class PlaylistsService {
           const mediaType = getMediaType(file.mimetype, extension);
           const { width, height } = pickDimensions(uploadedDimensions[i]);
 
+          // Durée d'affichage, en millisecondes : celle choisie dans le
+          // formulaire d'abord, la valeur par défaut du type en secours.
+          //
+          // Cette méthode ignorait complètement la durée envoyée par le client
+          // et imposait le défaut du type — d'où les 3 s enregistrées pour une
+          // image alors que le formulaire affichait 10 s.
+          const defaultDuration =
+            pickDuration(uploadedDurations[i]) ?? getDefaultDuration(mediaType);
+
           // Créer le nouveau média
           const media = await tx.media.create({
             data: {
@@ -916,7 +1095,9 @@ export class PlaylistsService {
               mimeType: getMimeType(file.mimetype, extension), // MODIFIÉ
               fileSize: file.size,
               type: mediaType, // MODIFIÉ: PDF, IMAGE, VIDEO
-              duration: null, // Sera mis à jour plus tard si nécessaire
+              // Reste null pour une vidéo : sa durée réelle vient du fichier,
+              // pas d'un réglage d'affichage.
+              duration: defaultDuration,
               width,
               height,
               userId: user.sub,
@@ -934,8 +1115,9 @@ export class PlaylistsService {
               playlistId: playlistId,
               mediaId: media.id,
               order: existingPlaylist.items.length + i + 1,
-              // AJOUT: Durée pour playlistItem en millisecondes
-              duration: getDefaultDuration(mediaType),
+              // Même valeur que le média : les deux doivent concorder, sinon
+              // l'app et l'écran affichent des durées différentes.
+              duration: defaultDuration,
             },
           });
 
@@ -1134,7 +1316,22 @@ export class PlaylistsService {
           lastUpdate: new Date().toISOString(),
         },
       };
-    });
+    }, UPLOAD_TRANSACTION_OPTIONS);
+
+    // Les écrans ne rechargent leur file que sur événement. Sans cette
+    // notification, des médias ajoutés ici n'apparaissaient qu'à la prochaine
+    // reconnexion de la TV (le dashboard, lui, n'a aucun moyen d'émettre : il
+    // n'y a pas de client socket côté serveur pour lui).
+    if (files?.length) {
+      const televisionIds = await this.televisionIdsForPlaylist(playlistId);
+      televisionIds.forEach((televisionId) =>
+        this.websocket.notifyTV(televisionId, 'tv-queue-updated', {
+          playlistId,
+        }),
+      );
+    }
+
+    return result;
   }
 
   async myPlaylists(user: any) {
@@ -1196,12 +1393,29 @@ export class PlaylistsService {
           orderBy: { position: 'asc' },
         },
         items: {
+          // `id` et `order` sont indispensables au réordonnancement du
+          // dashboard : sans `order` (et sans `orderBy`), les items remontaient
+          // dans un ordre arbitraire, et « Enregistrer l'ordre » écrivait donc
+          // cet ordre arbitraire. `title`/`originalName`/`type` évitent au
+          // client de deviner l'intitulé depuis un nom de fichier généré.
           select: {
+            id: true,
+            order: true,
             orientation: true,
+            // Durée propre à cette playlist : c'est elle que l'écran applique
+            // en priorité (`item.duration ?? item.media.duration`). Elle était
+            // absente de ce select, donc les clients ne voyaient que la durée
+            // globale du média et affichaient autre chose que la diffusion.
+            duration: true,
+            rotation: true,
             media: {
               select: {
                 id: true,
+                title: true,
+                originalName: true,
                 filename: true,
+                type: true,
+                mimeType: true,
                 s3Url: true,
                 duration: true,
                 width: true,
@@ -1209,6 +1423,7 @@ export class PlaylistsService {
               },
             },
           },
+          orderBy: { order: 'asc' },
         },
         schedules: true,
       },
@@ -1216,6 +1431,12 @@ export class PlaylistsService {
   }
 
   async removePlaylist(id: string) {
+    // Même garde-fou que removeMedia : un `deleteMany` sans filtre effectif
+    // (id undefined) supprimerait toutes les playlists de la base.
+    if (!id) {
+      throw new BadRequestException('Identifiant de playlist requis');
+    }
+
     return this.prisma.playlist.deleteMany({
       where: {
         id,
@@ -1225,6 +1446,21 @@ export class PlaylistsService {
 
   async removeMedia(id: string) {
     console.log('🚀 ~ PlaylistsService ~ removeMedia ~ id:', id);
+
+    // Garde-fou : avec un id absent, `deleteMany({ where: { id: undefined } })`
+    // ne filtre RIEN et viderait toute la table medias. Le `if (id)` d'origine
+    // protégeait la lecture du fichier, pas la suppression.
+    if (!id) {
+      throw new BadRequestException('Identifiant de média requis');
+    }
+
+    // Relevé AVANT la suppression : la cascade sur PlaylistItem efface le lien
+    // média ↔ playlist, on ne saurait plus qui prévenir après coup.
+    const impactedItems = await this.prisma.playlistItem.findMany({
+      where: { mediaId: id },
+      select: { playlistId: true },
+    });
+
     if (id) {
       const findUrlMedia = await this.prisma.media.findUnique({
         select: {
@@ -1238,15 +1474,58 @@ export class PlaylistsService {
         '🚀 ~ PlaylistsService ~ removeMedia ~ findUrlMedia:',
         findUrlMedia,
       );
-      const uploadDir = join(process.cwd(), findUrlMedia.s3Url);
-      await unlink(uploadDir);
+
+      // Média inexistant : `findUrlMedia.s3Url` levait un TypeError → 500
+      // illisible pour le client. 404 explicite à la place.
+      if (!findUrlMedia) {
+        throw new NotFoundException('Média introuvable');
+      }
+
+      // Le fichier peut déjà avoir disparu du disque (nettoyage manuel, volume
+      // recréé…). Sans ce filet, ENOENT faisait échouer tout l'appel et la
+      // ligne en base devenait IMPOSSIBLE à supprimer : le média restait
+      // indéfiniment dans la playlist avec un fichier absent.
+      if (findUrlMedia.s3Url) {
+        const uploadDir = join(process.cwd(), findUrlMedia.s3Url);
+        try {
+          await unlink(uploadDir);
+        } catch (error) {
+          console.warn(
+            `⚠️ Fichier média introuvable sur le disque, suppression en base malgré tout: ${uploadDir}`,
+            error?.code ?? error,
+          );
+        }
+      }
     }
 
-    return this.prisma.media.deleteMany({
+    const result = await this.prisma.media.deleteMany({
       where: {
         id,
       },
     });
+
+    // Sans notification, la TV continuait de jouer un média dont le fichier
+    // vient d'être effacé (case vide ou erreur de lecture) jusqu'à sa prochaine
+    // reconnexion. Un seul événement par écran, même si le média appartenait à
+    // plusieurs playlists diffusées dessus.
+    const notified = new Set<string>();
+    const playlistIds = Array.from(
+      new Set(impactedItems.map((item) => item.playlistId)),
+    );
+
+    for (const playlistId of playlistIds) {
+      const televisionIds = await this.televisionIdsForPlaylist(playlistId);
+
+      televisionIds.forEach((televisionId) => {
+        if (notified.has(televisionId)) return;
+        notified.add(televisionId);
+        this.websocket.notifyTV(televisionId, 'tv-queue-updated', {
+          playlistId,
+        });
+      });
+    }
+
+    return result;
   }
 
   async changeActivePlaylist(
@@ -1266,8 +1545,12 @@ export class PlaylistsService {
       });
 
       if (!playlistTelevision) {
-        throw new Error(
-          "Cette playlist n'est pas associée à la télévision spécifiée",
+        // `new Error` remontait en 500 « Internal server error » sans message
+        // exploitable : le client ne pouvait pas expliquer l'échec à
+        // l'utilisateur. Cas fonctionnel courant (playlist en file mais plus
+        // assignée), donc 404 avec un message actionnable.
+        throw new NotFoundException(
+          "Cette playlist n'est pas assignée à cet écran : assignez-la d'abord à l'écran avant de modifier sa file d'attente",
         );
       }
 
@@ -1377,14 +1660,17 @@ export class PlaylistsService {
         throw new NotFoundException('Média introuvable dans cette playlist');
       }
 
-      // Mettre à jour la durée
-      const updatedPlaylistMedia = await this.prisma.media.update({
-        where: {
-          id: mediaId,
-        },
-        data: {
-          duration: data.duration,
-        },
+      // La durée s'écrit sur le PlaylistItem, pas sur le Media.
+      //
+      // C'est la colonne que l'écran applique en priorité
+      // (`item.duration ?? item.media.duration`), et le schéma le dit :
+      // « Override media duration if needed ». Écrire `Media.duration` était
+      // doublement faux : la valeur était ignorée à la diffusion, puisque
+      // l'override de l'item l'emportait toujours, et elle s'appliquait à
+      // toutes les playlists contenant ce fichier au lieu de celle-ci seule.
+      const updatedItem = await this.prisma.playlistItem.update({
+        where: { id: playlistMedia.id },
+        data: { duration: data.duration },
       });
 
       // Mettre à jour le timestamp de la playlist
@@ -1393,15 +1679,55 @@ export class PlaylistsService {
         data: { updatedAt: new Date() },
       });
 
+      // Sans notification, le changement n'atteignait l'écran qu'à sa prochaine
+      // reconnexion. `tv-queue-updated` suffit : la TV recharge sa file et
+      // applique la nouvelle durée sans interrompre la lecture en cours, la
+      // liste des médias étant inchangée.
+      const televisionIds = await this.televisionIdsForPlaylist(playlistId);
+      televisionIds.forEach((televisionId) =>
+        this.websocket.notifyTV(televisionId, 'tv-queue-updated', {
+          playlistId,
+        }),
+      );
+
       return {
         success: true,
         message: 'Durée mise à jour avec succès',
-        data: updatedPlaylistMedia,
+        data: updatedItem,
       };
     } catch (error) {
       console.error('Erreur changeDurationMedia:', error);
       throw error;
     }
+  }
+
+  /**
+   * Écrans à prévenir pour une playlist : ceux auxquels elle est assignée *et*
+   * ceux qui l'ont dans leur file d'attente. Une playlist peut être diffusée
+   * par l'un ou l'autre chemin, et `PlaylistTelevision.televisionId` est
+   * nullable — les lignes sans écran sont donc écartées.
+   */
+  private async televisionIdsForPlaylist(
+    playlistId: string,
+  ): Promise<string[]> {
+    const [assignments, queueEntries] = await Promise.all([
+      this.prisma.playlistTelevision.findMany({
+        where: { playlistId },
+        select: { televisionId: true },
+      }),
+      this.prisma.playlistQueueItem.findMany({
+        where: { playlistId },
+        select: { televisionId: true },
+      }),
+    ]);
+
+    return Array.from(
+      new Set(
+        [...assignments, ...queueEntries]
+          .map((entry) => entry.televisionId)
+          .filter((id): id is string => Boolean(id)),
+      ),
+    );
   }
 
   /**
@@ -1443,25 +1769,7 @@ export class PlaylistsService {
     // Notification ciblée : la TV corrige l'orientation du média sans recharger
     // la playlist ni repartir du premier média, contrairement à un
     // "tv-change-playlist".
-    // On vise les TVs auxquelles la playlist est assignée *et* celles qui l'ont
-    // dans leur file d'attente : une playlist peut être diffusée par l'un ou
-    // l'autre chemin.
-    const [assignments, queueEntries] = await Promise.all([
-      this.prisma.playlistTelevision.findMany({
-        where: { playlistId },
-        select: { televisionId: true },
-      }),
-      this.prisma.playlistQueueItem.findMany({
-        where: { playlistId },
-        select: { televisionId: true },
-      }),
-    ]);
-
-    const televisionIds = new Set(
-      [...assignments, ...queueEntries]
-        .map((entry) => entry.televisionId)
-        .filter((id): id is string => Boolean(id)),
-    );
+    const televisionIds = await this.televisionIdsForPlaylist(playlistId);
 
     televisionIds.forEach((televisionId) =>
       this.websocket.notifyTV(televisionId, 'tv-media-orientation-updated', {
@@ -1474,6 +1782,64 @@ export class PlaylistsService {
     return {
       success: true,
       message: 'Orientation mise à jour avec succès',
+      data: updated,
+    };
+  }
+
+  /**
+   * Rotation manuelle d'un média, en degrés, propre à cette playlist.
+   *
+   * Portée par le PlaylistItem comme l'orientation : le même fichier peut être
+   * pivoté différemment d'une playlist à l'autre.
+   */
+  async changeRotationMedia(
+    playlistId: string,
+    mediaId: string,
+    data: { rotation: number },
+  ) {
+    const ALLOWED = [0, 90, 180, 270];
+    // Normalise avant de valider : une accumulation côté client (+90 répété)
+    // peut dépasser 360, et 360 doit valoir 0.
+    const rotation = ((Math.round(Number(data?.rotation)) % 360) + 360) % 360;
+
+    if (!Number.isFinite(rotation) || !ALLOWED.includes(rotation)) {
+      throw new BadRequestException(
+        `Rotation invalide. Valeurs acceptées : ${ALLOWED.join(', ')} degrés`,
+      );
+    }
+
+    const playlistItem = await this.prisma.playlistItem.findFirst({
+      where: { playlistId, mediaId },
+    });
+
+    if (!playlistItem) {
+      throw new NotFoundException('Média introuvable dans cette playlist');
+    }
+
+    const updated = await this.prisma.playlistItem.update({
+      where: { id: playlistItem.id },
+      data: { rotation },
+    });
+
+    await this.prisma.playlist.update({
+      where: { id: playlistId },
+      data: { updatedAt: new Date() },
+    });
+
+    // Même canal que l'orientation : la TV applique la rotation au média en
+    // cours sans recharger la playlist ni repartir du premier média.
+    const televisionIds = await this.televisionIdsForPlaylist(playlistId);
+    televisionIds.forEach((televisionId) =>
+      this.websocket.notifyTV(televisionId, 'tv-media-rotation-updated', {
+        playlistId,
+        mediaId,
+        rotation,
+      }),
+    );
+
+    return {
+      success: true,
+      message: 'Rotation mise à jour avec succès',
       data: updated,
     };
   }
@@ -1535,6 +1901,137 @@ export class PlaylistsService {
     }
   }
 
+  /**
+   * Remplace d'un bloc la liste des écrans d'une playlist : le client envoie
+   * l'état final voulu, pas un delta. Les assignations déjà en place sont
+   * laissées intactes (on ne réécrit ni `isActive` ni `priority` : les régler
+   * reste le rôle de changeActivePlaylist).
+   */
+  async setPlaylistTelevisions(
+    playlistId: string,
+    televisionIds: string[],
+    user: any,
+  ) {
+    if (!Array.isArray(televisionIds)) {
+      throw new BadRequestException(
+        "Le champ televisionIds doit être un tableau d'identifiants d'écrans",
+      );
+    }
+
+    const playlist = await this.prisma.playlist.findUnique({
+      where: { id: playlistId },
+      select: { id: true, name: true },
+    });
+
+    if (!playlist) {
+      throw new NotFoundException('Playlist introuvable');
+    }
+
+    // Dédoublonnage : deux fois le même écran violerait la contrainte
+    // @@unique([playlistId, televisionId]).
+    const requested = Array.from(
+      new Set(
+        televisionIds.filter(
+          (id): id is string => typeof id === 'string' && id.trim().length > 0,
+        ),
+      ),
+    );
+
+    // Un identifiant d'écran inconnu remonterait en violation de clé étrangère
+    // (500) : on le refuse en amont avec un message lisible.
+    if (requested.length > 0) {
+      const knownTelevisions = await this.prisma.television.findMany({
+        where: { id: { in: requested } },
+        select: { id: true },
+      });
+
+      if (knownTelevisions.length !== requested.length) {
+        const known = new Set(knownTelevisions.map((tv) => tv.id));
+        const unknown = requested.filter((id) => !known.has(id));
+        throw new NotFoundException(
+          `Écran(s) introuvable(s) : ${unknown.join(', ')}`,
+        );
+      }
+    }
+
+    const currentAssignments = await this.prisma.playlistTelevision.findMany({
+      where: { playlistId },
+      select: { televisionId: true },
+    });
+
+    const currentIds = currentAssignments
+      .map((assignment) => assignment.televisionId)
+      .filter((id): id is string => Boolean(id));
+
+    const toCreate = requested.filter((id) => !currentIds.includes(id));
+    const toRemove = currentIds.filter((id) => !requested.includes(id));
+
+    await this.prisma.$transaction(async (tx) => {
+      if (toCreate.length > 0) {
+        await tx.playlistTelevision.createMany({
+          data: toCreate.map((televisionId) => ({
+            playlistId,
+            televisionId,
+            isActive: true,
+            priority: 5,
+          })),
+          skipDuplicates: true,
+        });
+      }
+
+      if (toRemove.length > 0) {
+        await tx.playlistTelevision.deleteMany({
+          where: { playlistId, televisionId: { in: toRemove } },
+        });
+
+        // Sans ça, la playlist continuerait de tourner dans la file d'attente
+        // de l'écran qu'on vient justement de lui retirer.
+        await tx.playlistQueueItem.deleteMany({
+          where: { playlistId, televisionId: { in: toRemove } },
+        });
+      }
+    });
+
+    // Chaque écran retiré doit recharger sa file : la playlist n'y est plus.
+    toRemove.forEach((televisionId) =>
+      this.websocket.notifyTV(televisionId, 'tv-queue-updated', {}),
+    );
+
+    const assignments = await this.prisma.playlistTelevision.findMany({
+      where: { playlistId },
+      select: {
+        id: true,
+        isActive: true,
+        priority: true,
+        assignedAt: true,
+        televisionId: true,
+        television: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+      },
+    });
+
+    console.log(
+      `🖥️ Écrans de la playlist ${playlistId} mis à jour par ${user?.sub} : +${toCreate.length} / -${toRemove.length}`,
+    );
+
+    return {
+      success: true,
+      message: `${assignments.length} écran(s) assigné(s) à la playlist`,
+      televisionIds: assignments
+        .map((assignment) => assignment.televisionId)
+        .filter((id): id is string => Boolean(id)),
+      televisions: assignments,
+      changes: {
+        added: toCreate,
+        removed: toRemove,
+      },
+    };
+  }
+
   async removePlaylistFromTV(playlistId: string, televisionId: string) {
     // Retire aussi l'entrée de la file d'attente — sans ça, la TV continuerait
     // de jouer une playlist qui n'est plus censée lui être assignée.
@@ -1550,46 +2047,107 @@ export class PlaylistsService {
     return result;
   }
 
-  async reorderPlaylistToTV(data: { mediaId: string; order: number }[]) {
+  /**
+   * Réordonne les médias d'une playlist à partir de la liste complète
+   * [{ mediaId, order }] envoyée par le client.
+   *
+   * `playlistId` est optionnel pour ne pas casser les appels existants, mais il
+   * devrait toujours être fourni : sans lui, l'ordre est réécrit dans TOUTES
+   * les playlists contenant le média (un même fichier peut être partagé entre
+   * plusieurs playlists) et aucune TV ne peut être notifiée.
+   */
+  async reorderPlaylistToTV(
+    data: { mediaId: string; order: number }[],
+    playlistId?: string,
+  ) {
     console.log('🚀 ~ PlaylistsService ~ reorderPlaylistToTV ~ data:', data);
-    const result = await this.prisma.$transaction(async (prisma) => {
-      const updatePromises = data.map(async (item) => {
-        const whereClause: any = {
-          id: item.mediaId,
-        };
 
-        const findInPlaylistItems = await prisma.media.findFirst({
-          where: whereClause,
-        });
-        console.log(
-          '🚀 ~ PlaylistsService ~ reorderPlaylistToTV ~ findInPlaylistItems:',
-          findInPlaylistItems,
-        );
+    if (!Array.isArray(data) || data.length === 0) {
+      throw new BadRequestException(
+        'Le nouvel ordre doit être un tableau non vide de { mediaId, order }',
+      );
+    }
 
-        const updateResult = await prisma.playlistItem.updateMany({
-          where: {
-            mediaId: findInPlaylistItems.id,
-          },
-          data: {
-            order: item.order,
-          },
-        });
+    const entries = data.map((item) => ({
+      mediaId: item?.mediaId,
+      order: Math.round(Number(item?.order)),
+    }));
 
-        console.log(
-          `📝 Mise à jour item ${item.mediaId}: ${updateResult.count} enregistrement(s) modifié(s)`,
-        );
+    const invalidEntry = entries.find(
+      (entry) => !entry.mediaId || !Number.isFinite(entry.order),
+    );
 
-        return {
-          mediaId: item.mediaId,
-          newOrder: item.order,
-          updated: updateResult.count > 0,
-          affectedRows: updateResult.count,
-        };
+    if (invalidEntry) {
+      throw new BadRequestException(
+        'Chaque entrée doit contenir un mediaId et un order numérique',
+      );
+    }
+
+    if (playlistId) {
+      const playlist = await this.prisma.playlist.findUnique({
+        where: { id: playlistId },
+        select: { id: true },
       });
 
-      const updateResults = await Promise.all(updatePromises);
+      if (!playlist) {
+        throw new NotFoundException('Playlist introuvable');
+      }
+    }
+
+    const results = await this.prisma.$transaction(async (prisma) => {
+      const updateResults = [];
+
+      // Séquentiel et non Promise.all : une transaction interactive Prisma ne
+      // supporte pas les requêtes concurrentes sur le même client.
+      for (const entry of entries) {
+        const updateResult = await prisma.playlistItem.updateMany({
+          where: {
+            mediaId: entry.mediaId,
+            ...(playlistId ? { playlistId } : {}),
+          },
+          data: {
+            order: entry.order,
+          },
+        });
+
+        console.log(
+          `📝 Mise à jour item ${entry.mediaId}: ${updateResult.count} enregistrement(s) modifié(s)`,
+        );
+
+        updateResults.push({
+          mediaId: entry.mediaId,
+          newOrder: entry.order,
+          updated: updateResult.count > 0,
+          affectedRows: updateResult.count,
+        });
+      }
 
       return updateResults;
     });
+
+    let notifiedTelevisions: string[] = [];
+
+    if (playlistId) {
+      await this.prisma.playlist.update({
+        where: { id: playlistId },
+        data: { updatedAt: new Date() },
+      });
+
+      // Même événement que les autres changements de file : la TV rappelle
+      // "tv-get-playlist-queue", dont les items sont déjà triés par `order`.
+      notifiedTelevisions = await this.televisionIdsForPlaylist(playlistId);
+      notifiedTelevisions.forEach((televisionId) =>
+        this.websocket.notifyTV(televisionId, 'tv-queue-updated', {
+          playlistId,
+        }),
+      );
+    }
+
+    return {
+      success: true,
+      message: 'Ordre des médias mis à jour avec succès',
+      data: results,
+      notifiedTelevisions,
+    };
   }
 }

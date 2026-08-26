@@ -4,6 +4,7 @@ import {
   NotFoundException,
   ConflictException,
   BadRequestException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateTelevisionDto } from './dto/create-television.dto';
@@ -236,7 +237,31 @@ export class TelevisionsService {
           codeConnection: data.code,
         },
         include: {
-          user: true,
+          // ⚠️ Route volontairement NON authentifiée (appairage de l'écran) :
+          // `user: true` renvoyait tout l'objet User, donc le hash bcrypt du
+          // mot de passe et le jeton de réinitialisation, à quiconque devine un
+          // code à 9 chiffres. On énumère ici tous les champs SAUF les secrets,
+          // pour ne rien retirer à ce que l'écran affiche déjà.
+          user: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              email: true,
+              company: true,
+              department: true,
+              city: true,
+              avatar: true,
+              phone: true,
+              role: true,
+              roles: true,
+              isActive: true,
+              isVerify: true,
+              lastLogin: true,
+              createdAt: true,
+              updatedAt: true,
+            },
+          },
         },
       });
 
@@ -426,6 +451,13 @@ export class TelevisionsService {
         throw new NotFoundException('Television not found');
       }
 
+      // Contrôle de propriété — indispensable depuis que le dashboard expose un
+      // bouton de suppression : la route n'était gardée que par JwtAuthGuard,
+      // donc tout compte authentifié pouvait supprimer définitivement l'écran
+      // d'un autre client en connaissant son identifiant. Même dérogation ADMIN
+      // que `getQueue`, qui porte déjà ce contrôle.
+      await this.assertCanManageTelevision(existingTelevision, user);
+
       await this.prisma.$transaction(async (tx) => {
         // 1. Supprimer les associations PlaylistTelevision
         await tx.playlistTelevision.deleteMany({
@@ -442,22 +474,35 @@ export class TelevisionsService {
           where: { id: televisionId },
         });
 
-        await tx.subscription.updateMany({
-          data: {
-            usedScreens: {
-              decrement: 1,
+        // ⚠️ Le payload JWT expose l'id sous `sub` (auth.service.ts:46), pas
+        // sous `id`. Avec `userId: user.id` (undefined), Prisma ignore le
+        // filtre : le decrement s'appliquait à TOUS les abonnements MAIN de la
+        // base à chaque suppression d'écran.
+        //
+        // Le quota à décrémenter est celui du PROPRIÉTAIRE de l'écran, pas de
+        // l'appelant : un administrateur qui supprime l'écran d'un client
+        // décrémenterait sinon son propre abonnement, en laissant le compteur
+        // du client gonflé à vie.
+        const ownerId = existingTelevision.userId ?? user?.sub ?? user?.id;
+
+        if (ownerId) {
+          await tx.subscription.updateMany({
+            data: {
+              usedScreens: {
+                decrement: 1,
+              },
             },
-          },
-          where: {
-            userId: user.id,
-            plan: {
-              planType: 'MAIN',
+            where: {
+              userId: ownerId,
+              plan: {
+                planType: 'MAIN',
+              },
+              usedScreens: {
+                gt: 0,
+              },
             },
-            usedScreens: {
-              gt: 0,
-            },
-          },
-        });
+          });
+        }
       });
 
       return { success: true, message: 'Télévision supprimée avec succès' };
@@ -483,6 +528,113 @@ export class TelevisionsService {
         name: 'asc',
       },
     });
+  }
+
+  /**
+   * Autorise l'accès à un écran : son propriétaire, ou un administrateur.
+   *
+   * Les routes concernées ne sont gardées que par `JwtAuthGuard`, qui vérifie
+   * l'authentification mais pas l'appartenance. Sans ce contrôle, tout compte
+   * authentifié agirait sur l'écran d'un autre client en connaissant son
+   * identifiant.
+   *
+   * Le rôle est lu sur les DEUX colonnes `role` et `roles` : le schéma en porte
+   * deux, toutes deux `@default(USER)`, et selon les comptes c'est l'une ou
+   * l'autre qui est renseignée. Même règle que `RolesGuard`.
+   */
+  private async assertCanManageTelevision(
+    television: { userId?: string | null },
+    user: any,
+  ) {
+    if (!user?.sub) return;
+    if (television.userId === user.sub) return;
+
+    const requester = await this.prisma.user.findUnique({
+      where: { id: user.sub },
+      select: { role: true, roles: true },
+    });
+
+    if (requester?.role !== 'ADMIN' && requester?.roles !== 'ADMIN') {
+      throw new ForbiddenException(
+        'Accès refusé : cet écran ne vous appartient pas',
+      );
+    }
+  }
+
+  /**
+   * File d'attente d'un écran, pour le dashboard.
+   * On ne remonte que le NOMBRE de médias par playlist (et pas les médias) : la file
+   * peut contenir plusieurs playlists, en charger tous les items serait inutile ici.
+   */
+  async getQueue(tvId: string, user?: any) {
+    const television = await this.prisma.television.findUnique({
+      where: { id: tvId },
+      select: { id: true, userId: true },
+    });
+
+    if (!television) {
+      throw new NotFoundException('Écran introuvable');
+    }
+
+    // La route n'est gardée que par JwtAuthGuard : sans ce contrôle, n'importe quel
+    // compte authentifié lirait la file d'un écran appartenant à un autre client.
+    await this.assertCanManageTelevision(television, user);
+
+    const queueItems = await this.prisma.playlistQueueItem.findMany({
+      where: { televisionId: tvId },
+      orderBy: [{ position: 'asc' }, { createdAt: 'asc' }],
+      select: {
+        id: true,
+        position: true,
+        playlistId: true,
+        playlist: {
+          select: {
+            id: true,
+            name: true,
+            description: true,
+            isActive: true,
+            _count: {
+              select: { items: true },
+            },
+            // Programmations actives visant cet écran, ou globales (televisionId null) :
+            // permet au dashboard de signaler qu'une playlist est pilotée par un horaire.
+            schedules: {
+              where: {
+                isActive: true,
+                OR: [{ televisionId: tvId }, { televisionId: null }],
+              },
+              select: {
+                id: true,
+                title: true,
+                startDate: true,
+                endDate: true,
+                startTime: true,
+                endTime: true,
+                daysOfWeek: true,
+                priority: true,
+                overridePlaylist: true,
+                televisionId: true,
+              },
+              orderBy: [{ priority: 'desc' }, { startTime: 'asc' }],
+            },
+          },
+        },
+      },
+    });
+
+    return queueItems.map((item) => ({
+      id: item.id,
+      playlistId: item.playlistId,
+      position: item.position,
+      playlist: {
+        id: item.playlist.id,
+        name: item.playlist.name,
+        description: item.playlist.description,
+        isActive: item.playlist.isActive,
+      },
+      mediaCount: item.playlist._count.items,
+      schedules: item.playlist.schedules,
+    }));
   }
 
   async getStatistics() {

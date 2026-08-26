@@ -1,5 +1,6 @@
-version: "2"
-authtoken: 31q3yfsii7K73HKRkBprzIGjkG4_WEK5CbGL2bMtVR8Q5Hog
+version: '2'
+# authtoken: 31q3yfsii7K73HKRkBprzIGjkG4_WEK5CbGL2bMtVR8Q5Hog
+authtoken: 2Vd6uDSM2zbGKCXrlWteyjMQIUr_7dfGowMQzETwSQRwGYWgX
 # authtoken: 2otXCiX7X2bBF0AcLTewK2jRNdY_3sfbvVw5qSG8ctzxeHVdq
 web_addr: 0.0.0.0:4042
 update: false

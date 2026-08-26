@@ -88,8 +88,12 @@ export class SchedulesService {
       where: { id: scheduleId, userId: user.sub },
     });
 
+    // `return new Error(...)` renvoyait un objet sérialisé en `{}` avec un
+    // statut 200 : une modification refusée (planning inexistant ou appartenant
+    // à un autre compte) passait pour un succès côté client. On lève, comme
+    // `delete` juste en dessous, pour obtenir un vrai 404.
     if (!checkingSchedule) {
-      return new Error('Pas de planning existant');
+      throw new NotFoundException('Planning introuvable');
     }
 
     const updated = await this.prisma.schedule.update({

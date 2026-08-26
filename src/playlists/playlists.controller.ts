@@ -4,6 +4,7 @@ import {
   Post,
   Body,
   Patch,
+  Put,
   Param,
   Delete,
   UseInterceptors,
@@ -85,16 +86,19 @@ export class PlaylistsController {
     return this.playlistsService.myPlaylists(user);
   }
 
+  @UseGuards(JwtAuthGuard)
   @Delete('/media/:mediaId')
   remove(@Param('mediaId') id: string) {
     return this.playlistsService.removeMedia(id);
   }
 
+  @UseGuards(JwtAuthGuard)
   @Get(':id')
   findOne(@Param('id') id: string) {
     return this.playlistsService.findOne(id);
   }
 
+  @UseGuards(JwtAuthGuard)
   @Delete(':id')
   removePlaylist(@Param('id') id: string) {
     return this.playlistsService.removePlaylist(id);
@@ -123,6 +127,44 @@ export class PlaylistsController {
     }
   }
 
+  /**
+   * Assignation en lot : le client envoie l'état final voulu
+   * (`televisionIds`), le service calcule lui-même les ajouts et retraits.
+   */
+  @UseGuards(JwtAuthGuard)
+  @Put('/:playlistId/televisions')
+  setPlaylistTelevisions(
+    @Param('playlistId') playlistId: string,
+    @Body() data: { televisionIds: string[] },
+    @GetUser() user: any,
+  ) {
+    return this.playlistsService.setPlaylistTelevisions(
+      playlistId,
+      data?.televisionIds ?? [],
+      user,
+    );
+  }
+
+  /**
+   * Même traitement en POST : le dashboard (AssignTVDialog dans
+   * rds-dashboard/src/pages/playlists/myPlaylists.tsx) poste déjà sur cette
+   * URL. Alias à supprimer dès que le client sera passé en PUT.
+   */
+  @UseGuards(JwtAuthGuard)
+  @Post('/:playlistId/televisions')
+  setPlaylistTelevisionsViaPost(
+    @Param('playlistId') playlistId: string,
+    @Body() data: { televisionIds: string[] },
+    @GetUser() user: any,
+  ) {
+    return this.playlistsService.setPlaylistTelevisions(
+      playlistId,
+      data?.televisionIds ?? [],
+      user,
+    );
+  }
+
+  @UseGuards(JwtAuthGuard)
   @Patch('/:playlistId/televisionId/:televisionId/status')
   changeActivePlaylist(
     @Param('televisionId') televisionId: string,
@@ -136,6 +178,7 @@ export class PlaylistsController {
     );
   }
 
+  @UseGuards(JwtAuthGuard)
   @Patch('/:playlistId/media/:mediaId/duration')
   changeDurationMedia(
     @Param('mediaId') mediaId: string,
@@ -149,6 +192,7 @@ export class PlaylistsController {
     );
   }
 
+  @UseGuards(JwtAuthGuard)
   @Patch('/:playlistId/media/:mediaId/orientation')
   changeOrientationMedia(
     @Param('mediaId') mediaId: string,
@@ -162,6 +206,17 @@ export class PlaylistsController {
     );
   }
 
+  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard)
+  @Patch('/:playlistId/media/:mediaId/rotation')
+  changeRotationMedia(
+    @Param('mediaId') mediaId: string,
+    @Param('playlistId') playlistId: string,
+    @Body() data: { rotation: number },
+  ) {
+    return this.playlistsService.changeRotationMedia(playlistId, mediaId, data);
+  }
+
   @Patch('/:playlistId/assign-tv')
   assignPlaylistToTV(
     @Body() data: { televisionId: string; playlistId: string },
@@ -169,6 +224,7 @@ export class PlaylistsController {
     return this.playlistsService.assignPlaylistToTV(data);
   }
 
+  @UseGuards(JwtAuthGuard)
   @Delete('/:playlistId/unassign-tv/:televisionId')
   removePlaylistFromTV(
     @Param('playlistId') playlistId: string,
@@ -177,9 +233,15 @@ export class PlaylistsController {
     return this.playlistsService.removePlaylistFromTV(playlistId, televisionId);
   }
 
+  @UseGuards(JwtAuthGuard)
   @Patch('/:playlistId/reorder')
-  orderPlaylistToTV(@Body() data: { mediaId: string; order: number }[]) {
-    return this.playlistsService.reorderPlaylistToTV(data);
+  orderPlaylistToTV(
+    @Param('playlistId') playlistId: string,
+    @Body() data: { mediaId: string; order: number }[],
+  ) {
+    // Le playlistId de l'URL sert à borner la réécriture des ordres à cette
+    // seule playlist (un média peut appartenir à plusieurs playlists).
+    return this.playlistsService.reorderPlaylistToTV(data, playlistId);
   }
 
   // @Delete(':id')

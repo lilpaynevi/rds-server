@@ -66,8 +66,8 @@ export class UsersService {
     return user;
   }
 
-  findAll() {
-    return this.prisma.user.findMany({
+  async findAll() {
+    const users = await this.prisma.user.findMany({
       where: {
         roles: 'USER',
       },
@@ -99,10 +99,21 @@ export class UsersService {
         },
       },
     });
+
+    // Cette réponse contient les télévisions de tous les comptes, donc leurs
+    // `codeConnection` : GET /users est désormais derrière JwtAuthGuard
+    // (users.controller.ts). Le hash bcrypt et le jeton de réinitialisation sont
+    // retirés ici plutôt que par un `select`, pour ne rien changer à la forme
+    // attendue par le dashboard (relations imbriquées incluses).
+    // Reste à faire : restreindre la route au rôle ADMIN une fois les comptes
+    // administrateurs provisionnés en base.
+    return users.map(
+      ({ password, resetPasswordToken, resetPasswordExpires, ...safe }) => safe,
+    );
   }
 
-  findAllNotVerified() {
-    return this.prisma.user.findMany({
+  async findAllNotVerified() {
+    const users = await this.prisma.user.findMany({
       where: {
         AND: {
           isVerify: false,
@@ -110,6 +121,13 @@ export class UsersService {
         },
       },
     });
+
+    // Même traitement que `findAll` : la page d'approbation n'affiche que
+    // l'identité et l'organisation du demandeur, elle n'a aucun besoin du hash
+    // du mot de passe ni du jeton de réinitialisation.
+    return users.map(
+      ({ password, resetPasswordToken, resetPasswordExpires, ...safe }) => safe,
+    );
   }
 
   async VerifiedUser(userId, isVerify) {
@@ -140,7 +158,23 @@ export class UsersService {
       },
     });
 
-    const { password, ...userWithoutPassword } = user;
+    // Compte inexistant : la déstructuration de `null` levait un TypeError
+    // (500 sans message). 404 explicite, comme `remove()` juste en dessous.
+    if (!user) {
+      throw new NotFoundException('Utilisateur introuvable');
+    }
+
+    // `resetPasswordToken` était renvoyé tel quel : combiné à l'absence de
+    // contrôle d'appartenance sur GET /users/:id, il permettait de récupérer le
+    // jeton de réinitialisation d'un tiers et de prendre son compte. Même
+    // filtrage que `findAll` / `findAllNotVerified` (aucun de ces champs n'est
+    // lu par le dashboard).
+    const {
+      password,
+      resetPasswordToken,
+      resetPasswordExpires,
+      ...userWithoutPassword
+    } = user;
     return userWithoutPassword;
   }
 

@@ -233,6 +233,12 @@ model PlaylistItem {
   // l'orientation réelle du média diffère, la TV le pivote de 90°.
   orientation MediaOrientation @default(AUTO)
 
+  // Rotation manuelle en degrés : 0, 90, 180 ou 270.
+  // Dès qu'elle est non nulle, elle REMPLACE le pivot déduit de `orientation` —
+  // un réglage explicite ne doit pas être recombiné avec une détection
+  // automatique, dont le résultat serait imprévisible.
+  rotation Int @default(0)
+
   createdAt DateTime @default(now())
 
   // Relations
