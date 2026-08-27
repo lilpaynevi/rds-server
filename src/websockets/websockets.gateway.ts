@@ -741,6 +741,11 @@ export class WebsocketsGateway
             },
           },
         },
+        // Sans tri explicite, PostgreSQL renvoie les lignes dans un ordre non
+        // garanti, qui change après chaque mise à jour. La TV arbitre déjà de
+        // façon déterministe, mais un ordre stable rend les journaux et le
+        // diagnostic reproductibles.
+        orderBy: [{ priority: 'desc' }, { createdAt: 'asc' }],
       });
 
       const playlists = schedules

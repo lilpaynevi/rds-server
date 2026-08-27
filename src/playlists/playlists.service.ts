@@ -1359,6 +1359,17 @@ export class PlaylistsService {
             },
           },
         },
+        // Position dans la file de diffusion, par écran. C'est l'ordre de
+        // passage réel : la liste des playlists est triée pour l'affichage
+        // (statut puis date), ce qui ne dit rien de leur rang de rotation.
+        // Une playlist non mise en file n'a aucune entrée ici.
+        queueItems: {
+          select: {
+            televisionId: true,
+            position: true,
+          },
+          orderBy: { position: 'asc' },
+        },
         schedules: true,
       },
     });
