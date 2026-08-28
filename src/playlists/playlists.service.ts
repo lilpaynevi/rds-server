@@ -1626,6 +1626,8 @@ export class PlaylistsService {
         await prisma.playlistQueueItem.deleteMany({
           where: { playlistId, televisionId },
         });
+        // Retasse les rangs restants : sans ça la file gardait un trou.
+        await this.compactQueuePositions(prisma, televisionId);
       }
 
       return updatedPlaylist;
@@ -1709,6 +1711,36 @@ export class PlaylistsService {
     } catch (error) {
       console.error('Erreur changeDurationMedia:', error);
       throw error;
+    }
+  }
+
+  /**
+   * Renumérote la file d'un écran en 0, 1, 2… sans trou.
+   *
+   * Retirer une playlist supprimait sa ligne sans retasser les suivantes : les
+   * rangs restants gardaient leurs valeurs d'origine, et un écran ne comptant
+   * plus que deux playlists pouvait afficher « #5 ». L'ordre relatif est
+   * conservé — seules les valeurs changent — et rien n'est écrit quand la file
+   * est déjà compacte.
+   *
+   * Accepte aussi bien le client Prisma qu'un client de transaction : les
+   * appelants ne sont pas tous dans une transaction.
+   */
+  private async compactQueuePositions(client: any, televisionId: string) {
+    const items = await client.playlistQueueItem.findMany({
+      where: { televisionId },
+      orderBy: { position: 'asc' },
+      select: { id: true, position: true },
+    });
+
+    // Séquentiel et non `Promise.all` : à l'intérieur d'une transaction
+    // interactive, les requêtes passent par une seule connexion.
+    for (let index = 0; index < items.length; index++) {
+      if (items[index].position === index) continue;
+      await client.playlistQueueItem.update({
+        where: { id: items[index].id },
+        data: { position: index },
+      });
     }
   }
 
@@ -1855,61 +1887,90 @@ export class PlaylistsService {
     };
   }
 
+  /**
+   * Assigne une playlist à un écran et la met immédiatement en diffusion.
+   *
+   * L'assignation seule ne produisait rien de visible : la ligne
+   * `PlaylistTelevision` était bien créée avec `isActive: true`, mais aucune
+   * entrée n'était ajoutée à la file de l'écran. La playlist n'avait donc aucun
+   * rang de passage, n'apparaissait pas dans `tv-get-playlist-queue`, et rien
+   * n'était notifié à la TV — assigner un écran puis confirmer ne changeait
+   * rien à l'antenne.
+   *
+   * C'est cette route qu'utilise l'app mobile (`handleTvAssignConfirm`), écran
+   * par écran ; le dashboard passe par `setPlaylistTelevisions`, qui applique
+   * désormais la même règle.
+   */
   async assignPlaylistToTV(data: { televisionId: string; playlistId: string }) {
-    try {
-      // Vérifier si l'assignation existe déjà
-      const existingAssignment =
-        await this.prisma.playlistTelevision.findUnique({
-          where: {
-            playlistId_televisionId: {
-              playlistId: data.playlistId,
-              televisionId: data.televisionId,
-            },
-          },
-        });
-      console.log(
-        '🚀 ~ PlaylistsService ~ assignPlaylistToTV ~ existingAssignment:',
-        existingAssignment,
-      );
+    const playlistId = data?.playlistId;
+    const televisionId = data?.televisionId;
 
-      if (existingAssignment) {
-        // Si l'assignation existe, la réactiver
-        console.log("Si l'assignation existe, la réactiver");
-        return await this.prisma.playlistTelevision.update({
-          where: {
-            id: existingAssignment.id,
-          },
-          data: {
-            isActive: true,
-            priority: 5,
-            assignedAt: new Date(),
-          },
-          include: {
-            playlist: true,
-            television: true,
-          },
-        });
-      } else {
-        // Créer une nouvelle assignation (sans supprimer les autres)
-        console.log('🚀 ~ Créer une nouvelle assignation many-to-many');
-        return await this.prisma.playlistTelevision.create({
-          data: {
-            playlistId: data.playlistId,
-            televisionId: data.televisionId,
-            isActive: true,
-            priority: 5,
-          },
-          include: {
-            playlist: true,
-            television: true,
-          },
-        });
-      }
-    } catch (error) {
-      throw new Error(
-        `Erreur lors de l'assignation de la playlist à la TV: ${error.message}`,
+    if (!playlistId || !televisionId) {
+      throw new BadRequestException(
+        'playlistId et televisionId sont requis pour assigner une playlist',
       );
     }
+
+    // Vérifications explicites : un identifiant inconnu remontait en violation
+    // de clé étrangère, donc en 500 sans message exploitable par le client.
+    const playlist = await this.prisma.playlist.findUnique({
+      where: { id: playlistId },
+      select: { id: true, userId: true },
+    });
+
+    if (!playlist) {
+      throw new NotFoundException('Playlist introuvable');
+    }
+
+    const television = await this.prisma.television.findUnique({
+      where: { id: televisionId },
+      select: { id: true },
+    });
+
+    if (!television) {
+      throw new NotFoundException('Écran introuvable');
+    }
+
+    const assignment = await this.prisma.$transaction(async (tx) => {
+      // Créée, ou réactivée si elle existait déjà — le `upsert` remplace la
+      // lecture puis la branche create/update d'origine.
+      const saved = await tx.playlistTelevision.upsert({
+        where: { playlistId_televisionId: { playlistId, televisionId } },
+        create: { playlistId, televisionId, isActive: true, priority: 5 },
+        update: { isActive: true, priority: 5, assignedAt: new Date() },
+        include: { playlist: true, television: true },
+      });
+
+      // Mise en file, en fin de rotation de CET écran : les positions sont
+      // propres à chaque télévision, jamais globales.
+      //
+      // `update: {}` volontairement vide : une playlist déjà en file conserve
+      // son rang au lieu d'être renvoyée en queue à chaque réassignation.
+      const last = await tx.playlistQueueItem.findFirst({
+        where: { televisionId },
+        orderBy: { position: 'desc' },
+        select: { position: true },
+      });
+
+      await tx.playlistQueueItem.upsert({
+        where: { playlistId_televisionId: { playlistId, televisionId } },
+        create: {
+          playlistId,
+          televisionId,
+          userId: playlist.userId,
+          position: (last?.position ?? -1) + 1,
+        },
+        update: {},
+      });
+
+      return saved;
+    });
+
+    // L'écran recharge sa file et prend la playlist en compte tout de suite,
+    // sans attendre sa prochaine reconnexion.
+    this.websocket.notifyTV(televisionId, 'tv-queue-updated', { playlistId });
+
+    return assignment;
   }
 
   /**
@@ -1931,7 +1992,9 @@ export class PlaylistsService {
 
     const playlist = await this.prisma.playlist.findUnique({
       where: { id: playlistId },
-      select: { id: true, name: true },
+      // `userId` sert à créer les entrées de file : PlaylistQueueItem.userId
+      // est obligatoire, et c'est le propriétaire de la playlist qui compte.
+      select: { id: true, name: true, userId: true },
     });
 
     if (!playlist) {
@@ -1988,6 +2051,37 @@ export class PlaylistsService {
           })),
           skipDuplicates: true,
         });
+
+        // Mise en file immédiate sur chaque écran nouvellement assigné.
+        //
+        // L'assignation seule ne suffisait pas : `PlaylistTelevision.isActive`
+        // valait bien `true`, mais aucune entrée de file n'était créée. La
+        // playlist n'avait donc aucun rang de passage, n'apparaissait pas dans
+        // `tv-get-playlist-queue`, et l'écran ne la diffusait pas — assigner
+        // une TV puis confirmer ne produisait rien de visible.
+        //
+        // La position est propre à chaque écran : on prend le rang suivant de
+        // SA file, pas un compteur global. L'`upsert` rend l'opération
+        // idempotente — une entrée résiduelle d'une assignation précédente ne
+        // viole plus la contrainte @@unique et conserve son rang.
+        for (const televisionId of toCreate) {
+          const last = await tx.playlistQueueItem.findFirst({
+            where: { televisionId },
+            orderBy: { position: 'desc' },
+            select: { position: true },
+          });
+
+          await tx.playlistQueueItem.upsert({
+            where: { playlistId_televisionId: { playlistId, televisionId } },
+            create: {
+              playlistId,
+              televisionId,
+              userId: playlist.userId,
+              position: (last?.position ?? -1) + 1,
+            },
+            update: {},
+          });
+        }
       }
 
       if (toRemove.length > 0) {
@@ -2000,11 +2094,23 @@ export class PlaylistsService {
         await tx.playlistQueueItem.deleteMany({
           where: { playlistId, televisionId: { in: toRemove } },
         });
+
+        // Chaque file touchée est retassée : les rangs restants ne doivent pas
+        // conserver de trou.
+        for (const televisionId of toRemove) {
+          await this.compactQueuePositions(tx, televisionId);
+        }
       }
     });
 
     // Chaque écran retiré doit recharger sa file : la playlist n'y est plus.
     toRemove.forEach((televisionId) =>
+      this.websocket.notifyTV(televisionId, 'tv-queue-updated', {}),
+    );
+
+    // Et chaque écran ajouté aussi : sans notification, la playlist n'arrivait
+    // à l'écran qu'à la prochaine reconnexion de la TV.
+    toCreate.forEach((televisionId) =>
       this.websocket.notifyTV(televisionId, 'tv-queue-updated', {}),
     );
 
@@ -2053,6 +2159,9 @@ export class PlaylistsService {
       where: { playlistId, televisionId },
     });
     if (count > 0) {
+      // Retasse les rangs restants avant de prévenir l'écran, pour qu'il
+      // recharge une file déjà cohérente.
+      await this.compactQueuePositions(this.prisma, televisionId);
       this.websocket.notifyTV(televisionId, 'tv-queue-updated', {});
     }
     return result;

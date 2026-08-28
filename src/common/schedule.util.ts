@@ -57,11 +57,20 @@ export function isScheduleOpen(
     ? toMinutes(schedule.endTime)
     : MINUTES_IN_DAY;
 
+  // La minute de fin est INCLUSE : une fenêtre qui se termine à 13:31 diffuse
+  // jusqu'à 13:31:59 et se ferme à 13:32:00. Avec un `<` strict, elle se coupait
+  // à 13:31:00 pile — soit une minute de moins que ce qui est affiché à
+  // l'utilisateur, qui lit « jusqu'à 13:31 ».
+  //
+  // Conséquence assumée : deux fenêtres qui s'enchaînent (12:00→14:00 puis
+  // 14:00→16:00) se chevauchent pendant la minute 14:00. L'arbitrage de
+  // `pickOpenSchedule` côté TV reste déterministe, donc le contenu diffusé
+  // pendant cette minute est prévisible.
   if (startMinutes <= endMinutes) {
     return (
       runsOn(today) &&
       currentMinutes >= startMinutes &&
-      currentMinutes < endMinutes
+      currentMinutes <= endMinutes
     );
   }
 
@@ -71,7 +80,7 @@ export function isScheduleOpen(
   const yesterday = (today + 6) % 7;
   return (
     (runsOn(today) && currentMinutes >= startMinutes) ||
-    (runsOn(yesterday) && currentMinutes < endMinutes)
+    (runsOn(yesterday) && currentMinutes <= endMinutes)
   );
 }
 

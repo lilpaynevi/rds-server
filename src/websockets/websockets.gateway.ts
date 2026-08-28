@@ -12,7 +12,7 @@ import { Logger } from '@nestjs/common';
 import { Server, Socket } from 'socket.io';
 import { WebsocketsService } from './websockets.service';
 import { PrismaService } from 'src/prisma/prisma.service';
-import { canPlayNow } from 'src/common/schedule.util';
+import { canPlayNow, isScheduleOpen } from 'src/common/schedule.util';
 
 interface ConnectedDevice {
   deviceId: string;
@@ -906,33 +906,6 @@ export class WebsocketsGateway
       });
 
       const now = new Date();
-      const currentDay = now.getDay();
-      const currentTimeMinutes = now.getHours() * 60 + now.getMinutes();
-
-      const isScheduleActive = (schedule: any): boolean => {
-        if (schedule.startDate) {
-          const start = new Date(schedule.startDate);
-          start.setHours(0, 0, 0, 0);
-          if (start > now) return false;
-        }
-        if (schedule.endDate) {
-          const end = new Date(schedule.endDate);
-          end.setHours(23, 59, 59, 999);
-          if (end < now) return false;
-        }
-        if (schedule.daysOfWeek?.length > 0) {
-          if (!schedule.daysOfWeek.includes(currentDay)) return false;
-        }
-        if (schedule.startTime) {
-          const [h, m] = schedule.startTime.split(':').map(Number);
-          if (currentTimeMinutes < h * 60 + m) return false;
-        }
-        if (schedule.endTime) {
-          const [h, m] = schedule.endTime.split(':').map(Number);
-          if (currentTimeMinutes >= h * 60 + m) return false;
-        }
-        return true;
-      };
 
       const activePlaylist = playlists.find((playlist) => {
         const hasSchedule = playlist.schedules?.length > 0;
@@ -940,8 +913,16 @@ export class WebsocketsGateway
         // Playlist sans schedule → active seulement si isActive: true
         if (!hasSchedule) return playlist.isActive;
 
-        // Playlist avec schedule → active seulement si la plage horaire est respectée
-        return playlist.schedules.some(isScheduleActive);
+        // Playlist avec schedule → active seulement si la plage horaire est
+        // respectée. Le test passe par `isScheduleOpen`, comme partout ailleurs.
+        // La copie manuscrite qui vivait ici divergeait sur deux points : elle
+        // ne gérait pas les fenêtres à cheval sur minuit (22:00 → 02:00, jamais
+        // ouvertes), et elle fermait à `endTime` pile au lieu d'inclure cette
+        // minute — deux réponses possibles pour la même question selon le
+        // chemin emprunté.
+        return playlist.schedules.some((schedule) =>
+          isScheduleOpen(schedule, now),
+        );
       });
 
       if (!activePlaylist) {
