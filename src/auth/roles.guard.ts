@@ -3,13 +3,19 @@ import {
   ExecutionContext,
   ForbiddenException,
   Injectable,
-  UnauthorizedException,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { UserRole } from '@prisma/client';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { ROLES_KEY } from './roles.decorator';
 
+/**
+ * À poser APRÈS JwtAuthGuard : `@UseGuards(JwtAuthGuard, RolesGuard)`.
+ *
+ * Le rôle est relu en base plutôt que dans le JWT : le jeton embarque une copie
+ * du compte figée à la connexion, un rôle retiré resterait donc valable jusqu'à
+ * expiration du jeton.
+ */
 @Injectable()
 export class RolesGuard implements CanActivate {
   constructor(
@@ -23,47 +29,37 @@ export class RolesGuard implements CanActivate {
       [context.getHandler(), context.getClass()],
     );
 
-    // Route sans @Roles() : aucune restriction de rôle, on laisse passer.
-    if (!requiredRoles || requiredRoles.length === 0) {
-      return true;
-    }
+    if (!requiredRoles?.length) return true;
 
     const request = context.switchToHttp().getRequest();
-    const payload = request.user;
+    const userId = request.user?.sub;
 
-    if (!payload?.sub) {
-      throw new UnauthorizedException(
-        'Authentification requise : placez JwtAuthGuard avant RolesGuard.',
+    if (!userId) {
+      throw new ForbiddenException(
+        'Session invalide : le jeton ne porte pas d\'identifiant de compte',
       );
     }
 
-    // Le rôle est relu en base plutôt que pris dans le token. Le token en contient
-    // pourtant une copie (login() signe l'objet User entier sous payload.user), mais
-    // JwtModule.register est configuré sans expiration : cette copie est figée à la
-    // connexion et un rôle modifié depuis ne serait jamais répercuté.
+    // `role` fait foi. `roles` est l'ancienne colonne synonyme, conservée le
+    // temps d'être supprimée : elle n'est lue ici que pour signaler une
+    // divergence, qui est la cause la plus fréquente d'un 403 inattendu.
     const user = await this.prisma.user.findUnique({
-      where: { id: payload.sub },
-      // Le modèle User porte DEUX colonnes de rôle (`role` et `roles`,
-      // schema.prisma:22 et :25), toutes deux `@default(USER)`, et aucune ne
-      // fait autorité : la seule requête applicative qui lit un rôle filtre sur
-      // `roles` (users.service.ts:72), alors que ce garde a été écrit sur
-      // `role`. Ne lire qu'une des deux colonnes revient à parier sur
-      // la façon dont la base a été alimentée — et si le pari est perdu, TOUTE
-      // route @Roles('ADMIN') renvoie 403 aux administrateurs, ce qui rend le
-      // back-office inutilisable. On accepte donc l'une OU l'autre, le temps
-      // qu'une migration supprime la colonne en trop.
+      where: { id: userId },
       select: { role: true, roles: true },
     });
 
     if (!user) {
-      throw new ForbiddenException('Accès refusé : utilisateur introuvable.');
+      throw new ForbiddenException('Compte introuvable');
     }
 
-    const grantedRoles = [user.role, user.roles];
+    if (!requiredRoles.includes(user.role)) {
+      const mismatch =
+        user.roles !== user.role
+          ? ` — la colonne obsolète \`roles\` vaut ${user.roles}, mais c'est \`role\` qui fait foi`
+          : '';
 
-    if (!grantedRoles.some((role) => requiredRoles.includes(role))) {
       throw new ForbiddenException(
-        `Accès refusé : cette action requiert le rôle ${requiredRoles.join(' ou ')}.`,
+        `Cette action est réservée aux administrateurs. Rôle du compte : ${user.role}${mismatch}`,
       );
     }
 

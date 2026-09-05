@@ -7,12 +7,28 @@ import {
   Req,
   UseGuards,
   UnauthorizedException,
+  ValidationPipe,
 } from '@nestjs/common';
 import { AuthService } from './auth.service';
 
 import { CreateAuthDto } from './dto/create-auth.dto';
+import { RegisterAuthDto } from './dto/register-auth.dto';
 import { JwtAuthGuard } from './auth.guard';
 import { GetUser } from 'src/decorator/get-user.decorator';
+
+/**
+ * Appliqué au seul corps de l'inscription : l'application n'installe pas de
+ * ValidationPipe global, et en poser un maintenant validerait d'un coup tous
+ * les autres contrôleurs (dont les DTO sont incomplets).
+ *
+ * `forbidNonWhitelisted` rejette explicitement tout champ inconnu — un client
+ * qui tenterait d'ajouter `roles` ou `isVerify` reçoit un 400.
+ */
+const registerValidationPipe = new ValidationPipe({
+  whitelist: true,
+  forbidNonWhitelisted: true,
+  transform: true,
+});
 
 @Controller('auth')
 export class AuthController {
@@ -24,8 +40,10 @@ export class AuthController {
   }
 
   @Post('register')
-  async register(@Body() createAuthDto: any) {
-    return this.authService.register(createAuthDto);
+  async register(
+    @Body(registerValidationPipe) registerAuthDto: RegisterAuthDto,
+  ) {
+    return this.authService.register(registerAuthDto);
   }
 
   @Post('forgot-password')

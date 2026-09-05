@@ -1,15 +1,19 @@
 // src/auth/auth.service.ts
 import {
   BadRequestException,
+  ConflictException,
+  ForbiddenException,
   Inject,
   Injectable,
+  Logger,
   NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { CreateAuthDto } from './dto/create-auth.dto';
+import { RegisterAuthDto } from './dto/register-auth.dto';
 import * as bcrypt from 'bcrypt';
-import { User } from '@prisma/client';
+import { Prisma, User } from '@prisma/client';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { UsersService } from '../users/users.service';
 import * as crypto from 'crypto';
@@ -19,6 +23,8 @@ import { MailService } from 'src/mail/mail.service';
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     private readonly repository: UsersService,
     private jwtService: JwtService,
@@ -28,7 +34,6 @@ export class AuthService {
 
   async validateUser(createAuthDto: CreateAuthDto): Promise<User | null> {
     const user = await this.repository.findByUsername(createAuthDto.email);
-    console.log('🚀 ~ AuthService ~ validateUser ~ user:', user);
 
     if (user && (await bcrypt.compare(createAuthDto.password, user.password))) {
       return user;
@@ -37,21 +42,149 @@ export class AuthService {
   }
 
   async login(createAuthDto: CreateAuthDto): Promise<object> {
-    console.log('🚀 ~ AuthService ~ login ~ createAuthDto:', createAuthDto);
     const user = await this.validateUser(createAuthDto);
-    console.log('🚀 ~ AuthService ~ login ~ user:', user);
+
     if (!user) {
-      throw new UnauthorizedException();
+      throw new UnauthorizedException(
+        'Identifiant ou mot de passe incorrect',
+      );
     }
-    const payload = { email: user.email, sub: user.id, user };
+
+    // Un administrateur n'est pas soumis à la validation : sans cette
+    // exception, le tout premier compte ADMIN ne pourrait jamais se connecter
+    // pour valider qui que ce soit.
+    if (user.role !== 'ADMIN' && !user.isVerify) {
+      throw new ForbiddenException(
+        "Votre compte est en attente de validation par un administrateur. Vous recevrez un e-mail dès qu'il sera activé.",
+      );
+    }
+
+    if (!user.isActive) {
+      throw new ForbiddenException(
+        'Votre compte a été désactivé. Contactez le support pour le réactiver.',
+      );
+    }
+
+    // Le corps du JWT est lisible par quiconque détient le jeton : le hash
+    // bcrypt et le jeton de réinitialisation n'y ont rien à faire.
+    const { password, resetPasswordToken, resetPasswordExpires, ...safeUser } =
+      user;
+
+    const payload = { email: user.email, sub: user.id, user: safeUser };
 
     return {
       access_token: this.jwtService.sign(payload),
     };
   }
 
-  async register(data: User) {
-    return this.repository.create(data);
+  /**
+   * Inscription d'un compte professionnel.
+   *
+   * Le compte est créé désactivé (`isVerify: false`) : il faut qu'un
+   * administrateur le valide via PATCH /users/:userId/verified pour que la
+   * connexion devienne possible.
+   */
+  async register(dto: RegisterAuthDto) {
+    const existingEmail = await this.prisma.user.findUnique({
+      where: { email: dto.email },
+      select: { id: true },
+    });
+
+    if (existingEmail) {
+      throw new ConflictException('Un compte existe déjà avec cet e-mail');
+    }
+
+    const existingSiret = await this.prisma.user.findUnique({
+      where: { siret: dto.siret },
+      select: { id: true },
+    });
+
+    if (existingSiret) {
+      throw new ConflictException(
+        'Un compte existe déjà pour ce SIRET. Contactez le support si vous pensez qu\'il s\'agit d\'une erreur.',
+      );
+    }
+
+    const hashedPassword = await bcrypt.hash(dto.password, 10);
+
+    let user: {
+      id: string;
+      firstName: string;
+      lastName: string;
+      company: string | null;
+      siret: string | null;
+      email: string;
+      phone: string | null;
+      isVerify: boolean;
+      createdAt: Date;
+    };
+
+    try {
+      // Champs énumérés un par un, volontairement : l'ancien handler passait le
+      // corps de la requête tel quel à Prisma, ce qui laissait un client fixer
+      // `roles: "ADMIN"` ou `isVerify: true` à l'inscription.
+      user = await this.prisma.user.create({
+        data: {
+          firstName: dto.firstName,
+          lastName: dto.lastName,
+          company: dto.company,
+          siret: dto.siret,
+          email: dto.email,
+          phone: dto.phone ?? null,
+          password: hashedPassword,
+          // `role` fait foi ; `roles` est l'ancienne colonne synonyme, écrite
+          // en parallèle pour que les deux ne divergent pas tant qu'elle existe.
+          role: 'USER',
+          roles: 'USER',
+          isVerify: false,
+        },
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          company: true,
+          siret: true,
+          email: true,
+          phone: true,
+          isVerify: true,
+          createdAt: true,
+        },
+      });
+    } catch (error) {
+      // Deux inscriptions simultanées avec le même e-mail/SIRET passent les
+      // vérifications ci-dessus et se heurtent à la contrainte unique.
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002'
+      ) {
+        const target = (error.meta?.target as string[] | undefined)?.join(', ');
+        throw new ConflictException(
+          target?.includes('siret')
+            ? 'Un compte existe déjà pour ce SIRET'
+            : 'Un compte existe déjà avec cet e-mail',
+        );
+      }
+      throw error;
+    }
+
+    // L'inscription est déjà enregistrée : une indisponibilité de Brevo ne doit
+    // pas la faire échouer côté client. L'échec est journalisé pour que la
+    // demande puisse être rattrapée depuis la liste des comptes en attente.
+    try {
+      await this.mailService.sendNewAccountPendingApproval(user);
+    } catch (error) {
+      this.logger.error(
+        `Notification administrateurs impossible pour l'inscription de ${user.email}`,
+        error?.stack ?? error,
+      );
+    }
+
+    return {
+      message:
+        "Votre compte a bien été créé. Il doit maintenant être validé par un administrateur : vous recevrez un e-mail dès qu'il sera activé.",
+      pendingApproval: true,
+      user,
+    };
   }
 
   /**
@@ -261,7 +394,10 @@ export class AuthService {
         firstName: user.firstName,
         lastName: user.lastName,
         company: user.company,
+        siret: user.siret,
         isActive: user.isActive,
+        isVerify: user.isVerify,
+        role: user.role,
         ...req,
         subscription: user.Subscription,
       };

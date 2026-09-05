@@ -15,13 +15,24 @@ model User {
   firstName            String
   lastName             String
   company              String?
+  // SIRET de l'établissement professionnel. Nullable en base uniquement pour
+  // que la migration passe sur les comptes créés avant l'ouverture aux seuls
+  // professionnels : il est obligatoire à l'inscription (RegisterAuthDto).
+  // Unique => un même établissement ne peut pas ouvrir deux comptes ; Postgres
+  // autorise plusieurs NULL, les anciens comptes ne se gênent donc pas.
+  siret                String?        @unique
   department           String?
   city                 String?
   email                String         @unique
   password             String
+  // Rôle du compte. C'est CETTE colonne qui fait autorité (RolesGuard,
+  // filtrage de findAll, destinataires des notifications d'inscription).
   role                 UserRole       @default(USER)
   avatar               String?
   phone                String?
+  // Obsolète : ancienne colonne synonyme de `role`, plus lue par l'application.
+  // Encore écrite en parallèle pour éviter que les deux divergent. À supprimer
+  // une fois qu'aucun outil externe (requêtes SQL, tableau de bord) ne s'en sert.
   roles                UserRole       @default(USER)
   isActive             Boolean        @default(true)
   lastLogin            DateTime?

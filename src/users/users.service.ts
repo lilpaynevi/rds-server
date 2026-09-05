@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { CreateUserDto } from './dto/create-user.dto';
@@ -11,13 +12,18 @@ import * as bcrypt from 'bcrypt';
 import * as path from 'path';
 import * as fs from 'fs/promises';
 import Stripe from 'stripe';
+import { MailService } from 'src/mail/mail.service';
 
 @Injectable()
 export class UsersService {
   private readonly stripe: Stripe;
   private uploadsPath: string;
+  private readonly logger = new Logger(UsersService.name);
 
-  constructor(private readonly prisma: PrismaService) {
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly mailService: MailService,
+  ) {
     this.stripe = new Stripe(process.env.STRIPE_SK_KEY);
     this.uploadsPath = path.join(process.cwd(), 'uploads');
   }
@@ -67,10 +73,14 @@ export class UsersService {
   }
 
   async findAll() {
+    // Aucun filtre sur le rôle : la liste doit montrer tous les comptes,
+    // administrateurs inclus.
+    //
+    // Le `where: { roles: 'USER' }` d'origine était un filtre inopérant :
+    // `roles` valait `USER` par défaut sur tous les comptes, y compris ceux
+    // promus ADMIN via `role`. Le transposer en `role: 'USER'` l'a rendu
+    // effectif et a fait disparaître les administrateurs de la liste.
     const users = await this.prisma.user.findMany({
-      where: {
-        roles: 'USER',
-      },
       include: {
         televisions: {
           include: {
@@ -105,8 +115,6 @@ export class UsersService {
     // (users.controller.ts). Le hash bcrypt et le jeton de réinitialisation sont
     // retirés ici plutôt que par un `select`, pour ne rien changer à la forme
     // attendue par le dashboard (relations imbriquées incluses).
-    // Reste à faire : restreindre la route au rôle ADMIN une fois les comptes
-    // administrateurs provisionnés en base.
     return users.map(
       ({ password, resetPasswordToken, resetPasswordExpires, ...safe }) => safe,
     );
@@ -130,15 +138,61 @@ export class UsersService {
     );
   }
 
-  async VerifiedUser(userId, isVerify) {
-    return this.prisma.user.updateMany({
-      data: {
-        isVerify,
-      },
-      where: {
-        id: userId,
+  /**
+   * Validation (ou invalidation) d'un compte par un administrateur.
+   *
+   * L'e-mail d'activation n'est envoyé que sur la transition false -> true :
+   * revalider un compte déjà actif ne doit pas renvoyer une seconde annonce à
+   * l'utilisateur.
+   */
+  async VerifiedUser(userId: User['id'], isVerify: boolean) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        email: true,
+        firstName: true,
+        lastName: true,
+        isVerify: true,
       },
     });
+
+    if (!user) {
+      throw new NotFoundException('Utilisateur introuvable');
+    }
+
+    const wasVerified = user.isVerify;
+
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { isVerify },
+    });
+
+    let emailSent = false;
+
+    if (isVerify && !wasVerified) {
+      // La validation est déjà enregistrée : un échec Brevo ne doit pas
+      // renvoyer une erreur à l'administrateur ni annuler l'approbation.
+      try {
+        await this.mailService.sendAccountApprovedEmail(
+          user.email,
+          `${user.firstName} ${user.lastName}`.trim(),
+        );
+        emailSent = true;
+      } catch (error) {
+        this.logger.error(
+          `Compte ${user.email} validé mais e-mail de confirmation non envoyé`,
+          error?.stack ?? error,
+        );
+      }
+    }
+
+    return {
+      success: true,
+      id: user.id,
+      isVerify,
+      emailSent,
+    };
   }
 
   async findOne(id: User['id']) {

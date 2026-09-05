@@ -13,18 +13,24 @@ import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { User } from '@prisma/client';
 import { JwtAuthGuard } from 'src/auth/auth.guard';
+import { RolesGuard } from 'src/auth/roles.guard';
+import { Roles } from 'src/auth/roles.decorator';
 
 @Controller('users')
 export class UsersController {
   constructor(private readonly usersService: UsersService) {}
 
   /**
-   * Création de compte : seule route du contrôleur laissée ouverte.
-   * C'est le point d'entrée de l'inscription (le service hache le mot de passe
-   * et refuse un e-mail déjà pris) ; elle ne lit aucune donnée d'un autre
-   * compte. La poser derrière JwtAuthGuard rendrait toute inscription
-   * impossible.
+   * Création de compte en back-office, réservée aux administrateurs.
+   *
+   * L'inscription publique passe désormais par POST /auth/register, qui valide
+   * le SIRET, force `roles: USER` / `isVerify: false` et notifie les
+   * administrateurs. Cette route-ci acceptait le corps brut (donc `roles` et
+   * `isVerify`) sans authentification : elle contournait entièrement le
+   * parcours de validation.
    */
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('ADMIN')
   @Post()
   create(@Body() createUserDto: User) {
     return this.usersService.create(createUserDto);
@@ -37,11 +43,8 @@ export class UsersController {
    *
    * Volontairement JwtAuthGuard SEUL, sans @Roles('ADMIN') : le dashboard
    * s'appuie sur cette réponse pour construire la page « Toutes les playlists »,
-   * et aucun compte n'est aujourd'hui provisionné ADMIN en base — un contrôle de
-   * rôle viderait la page pour tout le monde. Reste à faire : durcir en
-   * @UseGuards(JwtAuthGuard, RolesGuard) + @Roles('ADMIN') une fois les comptes
-   * administrateurs provisionnés, ou restreindre la réponse au seul périmètre de
-   * l'appelant.
+   * qui est ouverte à tous les comptes — un contrôle de rôle la viderait.
+   * Reste à faire : restreindre la réponse au seul périmètre de l'appelant.
    */
   @UseGuards(JwtAuthGuard)
   @Get()
@@ -51,27 +54,33 @@ export class UsersController {
 
   /**
    * Liste les comptes en attente de validation : données personnelles de tiers
-   * (e-mail, téléphone, société). Réservée aux sessions authentifiées.
-   * Même remarque que ci-dessus sur le durcissement ADMIN à venir : cette page
-   * d'approbation est une fonction d'administration.
+   * (e-mail, téléphone, société, SIRET). Réservée aux administrateurs.
    */
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('ADMIN')
   @Get('/not-verified')
   findAllNotVerified() {
     return this.usersService.findAllNotVerified();
   }
 
   /**
-   * Valide (ou invalide) le compte d'un tiers — action d'administration qui
-   * était exécutable sans aucun jeton.
+   * Valide (ou invalide) le compte d'un tiers. C'est cette route qui débloque
+   * la connexion du demandeur et déclenche son e-mail d'activation.
    */
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('ADMIN')
   @Patch('/:userId/verified')
   VerifiedUser(
     @Param('userId') userId: string,
-    @Body() data: { isVerify: boolean },
+    @Body() data: { isVerify: boolean | string },
   ) {
-    const isVerify = data.isVerify;
+    // Le corps peut arriver en `"true"` / `"false"` selon le client : sans
+    // coercition, la chaîne "false" est vraie et validerait le compte.
+    const isVerify =
+      typeof data.isVerify === 'string'
+        ? data.isVerify === 'true'
+        : Boolean(data.isVerify);
+
     return this.usersService.VerifiedUser(userId, isVerify);
   }
 

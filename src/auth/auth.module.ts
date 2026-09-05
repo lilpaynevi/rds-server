@@ -6,7 +6,6 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import * as dotenv from 'dotenv';
 import { PassportModule } from '@nestjs/passport';
 import { JwtStrategy } from './auth.strategy';
-import { UsersService } from 'src/users/users.service';
 import { UsersModule } from 'src/users/users.module';
 import { MailModule } from 'src/mail/mail.module';
 dotenv.config();
@@ -24,7 +23,10 @@ dotenv.config();
     })
   ],
   controllers: [AuthController],
-  providers: [AuthService, UsersService , JwtStrategy],
+  // UsersService n'est plus redéclaré ici : UsersModule l'exporte désormais.
+  // Le redéclarer créait une seconde instance, à réinjecter à chaque nouvelle
+  // dépendance du service (MailService aujourd'hui).
+  providers: [AuthService, JwtStrategy],
   exports: [AuthService],
 })
 export class AuthModule {}
